@@ -1,3 +1,4 @@
-[submodule "crates/zed-gpui"]
-	path = crates/zed-gpui
-	url = https://github.com/kkkqkx123/zed-gpui.git
+[submodule "crates/compograph"]
+	path = crates/compograph
+	url = https://github.com/kkkqkx123/compograph.git
+	active = true
