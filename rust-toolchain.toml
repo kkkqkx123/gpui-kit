@@ -1,0 +1,5 @@
+# gpui-pre 0.3.9 uses the unstable `std::hint::cold_path` feature, so the
+# workspace must build on the beta toolchain (see also flake.nix, which pins
+# `rust-bin.beta.latest`). Keep this in sync with flake.nix.
+[toolchain]
+channel = "beta"
