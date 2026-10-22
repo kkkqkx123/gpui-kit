@@ -5,7 +5,10 @@
 # linked into the process (the failure mode called out in
 # docs/plan/tray-menubar-feature.md).
 #
-# Usage: ./script/check-gpui-pin.sh
+# This complements `script/check-gpui-pin.ts`, which checks the shape of the
+# pin in the manifest; this script checks that the lockfile agrees with it.
+#
+# Usage: ./script/check-gpui-lock-pin.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,8 +41,10 @@ if [ "$host_pin" != "$locked_pin" ]; then
 fi
 
 # gpui-kit must inherit the pinned `gpui` dependency rather than re-declaring its
-# own version, so there is a single source of truth.
-if ! grep -q 'gpui = { workspace = true }' crates/kit/Cargo.toml; then
+# own version, so there is a single source of truth. Both the shorthand form
+# (`gpui.workspace = true`) and the inline form (`gpui = { workspace = true }`)
+# inherit the workspace pin.
+if ! grep -qE '^gpui(\.workspace = true| = \{ workspace = true)' crates/kit/Cargo.toml; then
   echo "WARNING: crates/kit does not inherit gpui via 'workspace = true'." >&2
 fi
 

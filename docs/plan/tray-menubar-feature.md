@@ -186,7 +186,7 @@ pub struct TrayIconData { pub width: u32, pub height: u32, pub rgba: Vec<u8> } /
 │   └── tray-menubar-feature.md        # 本文档
 ├── Cargo.toml                         # 宿主 workspace（见下）
 ├── rust-toolchain.toml                # 宿主自持工具链（gpui-kit 无根级 toolchain 文件）
-├── script/check-gpui-pin.sh           # pin 校验（M0）
+├── script/check-gpui-lock-pin.sh           # pin 校验（M0）
 ├── crates/
 │   ├── tray/                          # gpui-tray：托盘功能 crate（本方案核心交付）
 │   │   └── src/
@@ -216,7 +216,7 @@ members = ["crates/tray", "examples/tray_demo"]
 edition = "2024"
 
 [workspace.dependencies]
-# 与 gpui-kit 根 Cargo.toml 的 pin 字面一致，check-gpui-pin.sh 强制校验
+# 与 gpui-kit 根 Cargo.toml 的 pin 字面一致，check-gpui-lock-pin.sh 强制校验
 gpui = { package = "gpui-pre", version = "=0.3.9" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9",
     features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
@@ -279,7 +279,7 @@ fn main() {
 cd gpui-kit && git fetch --depth 1 origin main && git checkout FETCH_HEAD && cd ..
 
 # 2. 对齐 pin：读 gpui-kit/Cargo.toml 中 gpui-pre 的版本号，同步改宿主 workspace 的 =pin
-./script/check-gpui-pin.sh   # 3. 校验两边字面一致（读两份 Cargo.toml 比对）
+./script/check-gpui-lock-pin.sh   # 3. 校验两边字面一致（读两份 Cargo.toml 比对）
 
 # 4. 刷新宿主锁并全量编译
 cargo update -p gpui-pre && cargo check
@@ -292,7 +292,7 @@ submodule 维持 shallow（`--depth 1` 拉取，后续 fetch 继续浅）：宿�
 
 ## 实施步骤
 
-- **M0 仓库接线**（submodule 已落地）：宿主 workspace manifest、`rust-toolchain.toml`、`script/check-gpui-pin.sh`、`.gitignore` 的 Cargo.lock 例外、CI 接线（校验脚本 + `cargo check`）。
+- **M0 仓库接线**（submodule 已落地）：宿主 workspace manifest、`rust-toolchain.toml`、`script/check-gpui-lock-pin.sh`、`.gitignore` 的 Cargo.lock 例外、CI 接线（校验脚本 + `cargo check`）。
 - **M1 核心 + Linux 后端**：`menu.rs`/`event.rs` 模型与桥接、ksni 后端（含 sRGBA→ARGB32 预乘转换）、`tray_demo`（Linux 可真机验证：KDE 与 GNOME+扩展 × Wayland/X11）、无 watcher 降级路径单测。
 - **M2 macOS 后端**：objc2 NSStatusItem/NSMenu 薄层（对齐 objc2 0.6）、template icon、Accessory 策略验证、accelerator 渲染。
 - **M3 Windows 后端**：tray-icon 接入、左键行为配置、事件 channel 桥接核对。
@@ -311,7 +311,7 @@ submodule 维持 shallow（`--depth 1` 拉取，后续 fetch 继续浅）：宿�
 
 ## 验证计划
 
-- **编译/静态**：宿主 `cargo check`（Linux 目标）通过；`check-gpui-pin.sh` 通过；宿主与 gpui-kit 的 lock 中 `gpui-pre` 版本一致（脚本比对）。
+- **编译/静态**：宿主 `cargo check`（Linux 目标）通过；`check-gpui-lock-pin.sh` 通过；宿主与 gpui-kit 的 lock 中 `gpui-pre` 版本一致（脚本比对）。
 - **M1 验收（Linux）**：tray_demo 在 KDE Wayland 下图标出现、DBusMenu 弹出、勾选项状态正确、点击 `Show Window` 恢复窗口、`Quit` 退出；GNOME+扩展同等通过；X11 会话同等通过；无扩展环境应用正常启动且 `is_available()==false`。
 - **M2 验收（macOS）**：菜单栏图标出现、template 图标随系统深浅色自适应、菜单动作触发 gpui Action、Accessory 模式下 Dock 无图标且托盘功能完整、close-to-tray 后点击托盘恢复。
 - **M3 验收（Windows）**：托盘区图标、右键原生菜单、左键行为符合配置、close-to-tray 后 taskbar 项消失、托盘恢复后回归。
