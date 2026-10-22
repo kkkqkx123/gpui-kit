@@ -21,6 +21,6 @@ impl TrayBackend for NullBackend {
     fn set_left_click_action(&self, _behavior: LeftClick) {}
 }
 
-pub fn create_backend(_cx: &mut App) -> anyhow::Result<Box<dyn TrayBackend>> {
-    Ok(Box::new(NullBackend))
+pub fn create_backend(_cx: &mut App) -> anyhow::Result<NullBackend> {
+    Ok(NullBackend)
 }

@@ -165,12 +165,12 @@ pub fn create_backend(cx: &mut App) -> anyhow::Result<Box<dyn TrayBackend>> {
     let menu = build_menu(&[], &handler, &tx);
     status_item.setMenu(Some(&menu));
 
-    Ok(Box::new(MacBackend {
+    Ok(MacBackend {
         status_item,
         handler,
         shared,
         tx,
-    }))
+    })
 }
 
 impl TrayBackend for MacBackend {

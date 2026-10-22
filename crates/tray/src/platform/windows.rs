@@ -132,7 +132,7 @@ pub fn create_backend(cx: &mut App) -> anyhow::Result<Box<dyn TrayBackend>> {
         }
     });
 
-    Ok(Box::new(WindowsBackend { tray, shared, tx }))
+    Ok(WindowsBackend { tray, shared, tx })
 }
 
 impl TrayBackend for WindowsBackend {

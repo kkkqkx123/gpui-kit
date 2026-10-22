@@ -53,6 +53,7 @@ pub use icon::{TrayIconData, TrayIconRef};
 pub use menu::{
     tray_menu, AnyAction, MenuItemId, TrayItem, TrayMenu, TrayMenuBuilder, TrayMenuItem, TraySubmenu,
 };
+pub use platform::PlatformTrayBackend;
 
 use std::sync::Arc;
 
@@ -78,16 +79,18 @@ impl Clone for LeftClick {
 
 /// A handle to the system tray.
 ///
-/// Cheaply cloneable and `Send`; safe to share across the application. Must be
-/// created inside `application().run(|cx| …)` on the main thread.
+/// Holds the concrete backend of the current platform (behind an `Arc`), so
+/// calls dispatch statically. Cheaply cloneable and `Send`; safe to share
+/// across the application. Must be created inside `application().run(|cx| …)`
+/// on the main thread.
 pub struct Tray {
-    backend: Arc<dyn TrayBackend>,
+    backend: PlatformTrayBackend,
 }
 
 impl Clone for Tray {
     fn clone(&self) -> Self {
         Self {
-            backend: Arc::clone(&self.backend),
+            backend: self.backend.clone(),
         }
     }
 }
@@ -98,9 +101,8 @@ impl Tray {
     /// Never blocks on desktop startup. If the platform tray is unavailable,
     /// [`Tray::is_available`] returns `false` and the app runs normally.
     pub fn new(cx: &mut App) -> anyhow::Result<Self> {
-        let backend = platform::create_backend(cx)?;
         Ok(Self {
-            backend: Arc::from(backend),
+            backend: PlatformTrayBackend::new(cx)?,
         })
     }
 

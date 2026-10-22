@@ -204,7 +204,7 @@ fn build_submenu(sub: &TraySubmenu, tx: &Sender<TrayEvent>) -> SubMenu<KsniTray>
     }
 }
 
-pub fn create_backend(cx: &mut App) -> anyhow::Result<Box<dyn TrayBackend>> {
+pub fn create_backend(cx: &mut App) -> anyhow::Result<LinuxBackend> {
     let (tx, rx) = flume::unbounded::<TrayEvent>();
     let shared = Arc::new(Mutex::new(LinuxShared::default()));
     let handle_slot: Arc<Mutex<Option<Handle<KsniTray>>>> = Arc::new(Mutex::new(None));
@@ -268,10 +268,10 @@ pub fn create_backend(cx: &mut App) -> anyhow::Result<Box<dyn TrayBackend>> {
         }
     });
 
-    Ok(Box::new(LinuxBackend {
+    Ok(LinuxBackend {
         shared,
         tx,
-    }))
+    })
 }
 
 impl TrayBackend for LinuxBackend {

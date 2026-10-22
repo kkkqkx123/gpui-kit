@@ -8,7 +8,8 @@ use crate::LeftClick;
 
 /// A platform tray implementation.
 ///
-/// `Tray` wraps an `Arc<dyn TrayBackend>`, so implementations must be `Send + Sync`.
+/// [`Tray`] forwards to the concrete backend of the current platform through
+/// [`crate::PlatformTrayBackend`], so implementations must be `Send + Sync`.
 pub trait TrayBackend: Send + Sync {
     /// Whether a working tray is present on this platform/session.
     fn is_available(&self) -> bool;
