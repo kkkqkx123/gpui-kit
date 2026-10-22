@@ -5,7 +5,7 @@
 ## 结论
 
 - gpui（本仓库 pin 的 `gpui-pre =0.3.9` 快照）与 gpui-kit 当前均无托盘能力，需要在本仓库以自有 crate 补齐；gpui 已具备的四个相邻能力——原生 app menu、锚定父窗口的 popup、Wayland layer-shell、DBus 系统通知——分别提供了 API 形态、能力边界、平台扩展点与事件桥接的模板。
-- 仓库组织采用 compograph 模式：本仓库（宿主）已以 submodule（浅克隆，`--depth 1`，指针 `6d84907`）引入 gpui-kit，托盘功能作为宿主自有 crate（`crates/tray`）实现，永不修改 gpui-kit 内任何文件。上游同步 = 更新 submodule 指针 + 对齐 `gpui-pre` 精确 pin，不产生任何合并冲突。
+- 托盘功能独立成仓：`kkkqkx123/gpui-tray` 是独立仓库（自带 workspace、独立版本线与三平台 CI），在本仓库以 submodule 挂在 `crates/tray`。它不进入本仓库的 workspace，根 `Cargo.toml` 与 `Cargo.lock` 因此与上游逐字一致；上游同步 = 更新 submodule 指针，不产生任何合并冲突。
 - 托盘后端按平台分治：Linux 用 ksni 0.3.x（纯 zbus 的 StatusNotifierItem 实现，无 GTK 依赖，与 gpui Linux 栈同源）；macOS 自实现 objc2 薄层封装 NSStatusItem（对齐 gpui-pre-macos 已链接的 objc2 0.6 / objc2-app-kit 0.3.2，零新增运行时）；Windows 用 tray-icon（win32 Shell_NotifyIcon）。菜单一律走平台原生菜单（DBusMenu / NSMenu / HMENU），菜单项动作统一映射为 gpui `Action`，经 `App::dispatch_action` 分发——与 gpui 原生 app menu 的桥接方式完全一致。
 - 窗口生命周期配套（close-to-tray、托盘点击恢复、纯托盘模式）基于 gpui 现有 `on_should_close` / `Platform::hide` / `App::activate` / `ActivationPolicy::Accessory` 即可实现 v1；gpui 缺少 per-window hide 是已识别缺口，走上游提案路线，v1 以应用级 `hide()` 覆盖。
 
@@ -20,7 +20,7 @@ compograph 是理解本方案的样板。它作为独立仓库（kkkqkx123/compo
 3. **宿主零改动**：compograph 从不修改 gpui-kit 文件，gpui-kit 上游同步 = 更新 submodule 指针。
 4. **文档就地沉淀**：设计与迁移方案写在各仓库自己的 `docs/plan/`。
 
-本仓库已按同一模式接线：`git submodule add --depth 1 https://github.com/kkkqkx123/gpui-kit gpui-kit`，`.gitmodules` 已生成，指针固定在 `6d84907`（kkkqkx123 fork，跟踪 longbridge/gpui-kit 上游，当前分支含 `feat/compograph` 合并）。
+本仓库的托盘已按同一模式接线：`git submodule add https://github.com/kkkqkx123/gpui-tray crates/tray`，`.gitmodules` 已生成。托盘仓库自带 `[workspace]`、独立 `Cargo.lock` 与独立 `rust-toolchain.toml`，不在本仓库的 `members` 列表里，也不进本仓库的 `Cargo.lock`——submodule 在这里只是"源码放在树里"的组织手段，构建图完全解耦。
 
 ### gpui 平台能力盘点（gpui-pre 0.3.9，与本功能相关）
 
@@ -179,61 +179,64 @@ pub struct TrayIconData { pub width: u32, pub height: u32, pub rgba: Vec<u8> } /
 ### 仓库布局
 
 ```text
-/workspace（宿主仓库，本仓库）
-├── .gitmodules                        # [submodule "gpui-kit"]（已落地，shallow clone）
-├── gpui-kit/                          # 上游 submodule @ 6d84907，永不修改其文件
+kkkqkx123/gpui-tray（托盘独立仓库）
+├── .github/workflows/ci.yml            # 三平台 lint + test，flavor 校验
+├── Cargo.toml                          # 独立 workspace（自带 [workspace]）
+├── rust-toolchain.toml                 # 自持工具链（beta，与 gpui-kit 一致）
+├── script/
+│   ├── check-gpui-kit-pin.py           # 与已发布 gpui-kit 的 pin 相等性校验
+│   └── install-linux.sh                # CI 的系统依赖
+├── examples/
+│   └── tray_demo/                      # 托盘演示：图标/菜单/close-to-tray/恢复
+└── src/
+    ├── lib.rs                          # Tray 句柄、公开 API、flavor 开关
+    ├── menu.rs                         # TrayMenu/TrayItem 模型与 Action 映射
+    ├── event.rs                        # TrayEvent、桥接任务
+    ├── icon.rs                         # TrayIconData、平台位图转换
+    ├── backend.rs                      # TrayBackend trait 契约
+    └── platform/
+        ├── linux.rs                    # ksni 后端
+        ├── macos.rs                    # objc2 后端
+        ├── windows.rs                  # tray-icon 后端
+        └── null.rs                     # 无后端兜底（unsupported 平台，全部 no-op）
+
+本仓库（gpui-kit）
+├── .gitmodules                         # [submodule "crates/tray"]
+├── crates/tray/                        # 托盘 submodule 指针，永不修改其文件
 ├── docs/plan/
 │   └── tray-menubar-feature.md        # 本文档
-├── Cargo.toml                         # 宿主 workspace（见下）
-├── rust-toolchain.toml                # 宿主自持工具链（gpui-kit 无根级 toolchain 文件）
-├── script/check-gpui-lock-pin.sh           # pin 校验（M0）
-├── crates/
-│   ├── tray/                          # gpui-tray：托盘功能 crate（本方案核心交付）
-│   │   └── src/
-│   │       ├── lib.rs                 # Tray 句柄、公开 API、feature 开关
-│   │       ├── menu.rs                # TrayMenu/TrayItem 模型与 Action 映射
-│   │       ├── event.rs               # TrayEvent、桥接任务
-│   │       ├── icon.rs                # TrayIconData、resvg 栅格化、缓存
-│   │       └── platform/
-│   │           ├── linux.rs           # ksni 后端（feature = "linux"）
-│   │           ├── macos.rs           # objc2 后端（feature = "macos"）
-│   │           ├── windows.rs         # tray-icon 后端（feature = "windows"）
-│   │           └── null.rs            # 无后端兜底（unsupported 平台，全部 no-op）
-│   └── app/                           # 宿主应用（后续由应用需求展开）
-└── examples/
-    └── tray_demo/                     # 托盘演示：图标/菜单/close-to-tray/恢复
+└── Cargo.toml                          # 与上游逐字一致，不含托盘条目
 ```
 
-### 宿主 workspace 接线（M0 交付物）
+### 托盘仓库接线（M0 交付物，已落地）
 
 ```toml
-# /workspace/Cargo.toml
-[workspace]
-resolver = "2"
-members = ["crates/tray", "examples/tray_demo"]
-
-[workspace.package]
+# kkkqkx123/gpui-tray/Cargo.toml
+[package]
+name = "gpui-tray"
+version = "0.1.0"
 edition = "2024"
 
-[workspace.dependencies]
-# 与 gpui-kit 根 Cargo.toml 的 pin 字面一致，check-gpui-lock-pin.sh 强制校验
-gpui = { package = "gpui-pre", version = "=0.3.9" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9",
-    features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
-gpui-kit = { path = "gpui-kit/crates/kit" }
-gpui-tray = { path = "crates/tray" }
-anyhow = "1"
-log = "0.4"
-smol = "2"
+# 独立仓库，不属于 gpui-kit 的 workspace
+[workspace]
+members = ["examples/tray_demo"]
 
-[profile.dev]
-debug = "limited"
+[features]
+default = ["gpui-kit"]
+gpui-kit = ["dep:gpui-kit-backend"]
+gpui-fast = ["dep:gpui-fast-backend"]
+
+[dependencies]
+gpui-kit-backend = { package = "gpui-pre", version = "=0.3.9", optional = true }
+gpui-fast-backend = { package = "gpui-fast", version = "0.1.10", optional = true }
 ```
 
 要点：
 
-- gpui-kit/ 自带 `[workspace]` 根，Cargo 自动将其排除在宿主 members 之外（嵌套 workspace 语义），两把 `Cargo.lock` 各自独立，由 `=0.3.9` 字面 pin 保证解析到同一份 gpui 源。宿主是应用仓库，`Cargo.lock` 应提交（当前模板 `.gitignore` 忽略 `**/Cargo.lock`，M0 需追加 `!Cargo.lock` 例外，仿 gpui-kit 的做法）。
-- 托盘 crate 直接依赖 `gpui`（workspace 键）与平台后端 crate；对 gpui-kit 的依赖仅限 icon 资源路径约定（`TrayIconRef::Asset(path)`），把耦合面压到最小——资源串约定比 path 依赖 crates/assets 更松，宿主应用按需再引。
+- 托盘 crate 自带 `[workspace]` 根，Cargo 自动把它排除在本仓库的 members 之外（嵌套 workspace 语义），两把 `Cargo.lock` 各自独立。
+- flavor 取代多后端：应用用哪套 GPUI 就选哪个 flavor，`gpui::App` / `Action` 类型随之确定；`lib.rs` 用 `compile_error!` 拒绝同时开启两个 flavor。
+- 精确 pin 是"一个进程只有一套 GPUI 类型"这条约束的落点：托盘 pin 的 `gpui-pre` 版本必须与已发布 gpui-kit 一致，由托盘仓库的 `script/check-gpui-kit-pin.py` 在 CI 中比对。
+- 本仓库的根 `Cargo.toml` / `Cargo.lock` 不含任何托盘条目，与上游逐字一致；托盘的依赖（ksni、tray-icon 等）也不会进入本仓库的 lock。
 
 ### 托盘 crate 公开 API 草案
 
@@ -275,24 +278,21 @@ fn main() {
 ### 上游同步流程（submodule 维护手册）
 
 ```bash
-# 1. 更新 gpui-kit submodule（浅仓库直接拉新指针）
-cd gpui-kit && git fetch --depth 1 origin main && git checkout FETCH_HEAD && cd ..
+# 1. 更新托盘 submodule 指针
+cd crates/tray && git fetch origin main && git checkout FETCH_HEAD && cd ../..
 
-# 2. 对齐 pin：读 gpui-kit/Cargo.toml 中 gpui-pre 的版本号，同步改宿主 workspace 的 =pin
-./script/check-gpui-lock-pin.sh   # 3. 校验两边字面一致（读两份 Cargo.toml 比对）
+# 2. 对齐 pin：托盘仓库的 gpui-pre 版本必须与已发布 gpui-kit 一致
+cd crates/tray && python3 script/check-gpui-kit-pin.py && cd ../..
 
-# 4. 刷新宿主锁并全量编译
-cargo update -p gpui-pre && cargo check
-
-# 5. 提交宿主仓库的 submodule 指针变更
-git add gpui-kit && git commit -m "chore: bump gpui-kit submodule"
+# 3. 提交本仓库的 submodule 指针变更
+git add crates/tray && git commit -m "chore: bump the tray submodule"
 ```
 
-submodule 维持 shallow（`--depth 1` 拉取，后续 fetch 继续浅）：宿主对 gpui-kit 只做只读跟踪，浅历史足够；如需考古上游提交，再 `git fetch --unshallow`。
+托盘仓库的 pin 校验在它自己的 CI 里跑（`script/check-gpui-kit-pin.py` 比对 crates.io 上已发布 gpui-kit 的 pin），本仓库不参与；本仓库只需要更新 submodule 指针。
 
 ## 实施步骤
 
-- **M0 仓库接线**（submodule 已落地）：宿主 workspace manifest、`rust-toolchain.toml`、`script/check-gpui-lock-pin.sh`、`.gitignore` 的 Cargo.lock 例外、CI 接线（校验脚本 + `cargo check`）。
+- **M0 仓库接线**（已落地）：托盘独立仓库 `kkkqkx123/gpui-tray`（自带 workspace、`rust-toolchain.toml`、三平台 CI、`script/check-gpui-kit-pin.py`），本仓库以 submodule 挂在 `crates/tray`，根 `Cargo.toml` / `Cargo.lock` 与上游逐字一致。
 - **M1 核心 + Linux 后端**：`menu.rs`/`event.rs` 模型与桥接、ksni 后端（含 sRGBA→ARGB32 预乘转换）、`tray_demo`（Linux 可真机验证：KDE 与 GNOME+扩展 × Wayland/X11）、无 watcher 降级路径单测。
 - **M2 macOS 后端**：objc2 NSStatusItem/NSMenu 薄层（对齐 objc2 0.6）、template icon、Accessory 策略验证、accelerator 渲染。
 - **M3 Windows 后端**：tray-icon 接入、左键行为配置、事件 channel 桥接核对。
@@ -302,7 +302,7 @@ submodule 维持 shallow（`--depth 1` 拉取，后续 fetch 继续浅）：宿�
 
 ## 风险与开放问题
 
-1. **gpui-pre 快照升级节奏**：宿主与 gpui-kit 必须同 pin。机制已闭环（字面 pin + 校验脚本 + 同步流程），但每次 gpui-kit 指针前移都伴随一次宿主 pin/lock 动作，成本约 10 分钟；compograph 与 gpui-kit 的 0.3.8/0.3.9 漂移是前车之鉴。
+1. **gpui-pre 快照升级节奏**：托盘与 gpui-kit 必须同 pin。机制已闭环（精确 pin + `check-gpui-kit-pin.py` 比对已发布 gpui-kit），但每次 gpui-kit 发版后都要在托盘仓库抬一次 pin；漏了会在应用侧表现为两套 `gpui::App` 类型不相连（编译期报错，不是静默行为差异）。
 2. **GNOME 无 AppIndicator 扩展**：SNI 无 watcher，托盘整体不可用。已设计降级；是否在 UI 内引导安装扩展由宿主应用决定。
 3. **DBusMenu 能力差异**：ksni 0.3 的菜单项暴露 label/enabled/icon_name/checked/submenu；per-item 位图图标与快捷键显示（DBusMenu 协议有 shortcut 字段但 ksni API 未暴露）为开放问题，影响面仅视觉细节，必要时可给 ksni 提 PR。
 4. **macOS 兼容性**：NSStatusItem 在 gpui 所持 NSApplication run loop 内的兼容性理论上无冲突（仅要求主线程与已初始化的 NSApplication），需 M2 用 tray_demo 实测；Accessory→Regular 运行时切换后的 activate 行为按 gpui 文档注释处理。
@@ -311,7 +311,7 @@ submodule 维持 shallow（`--depth 1` 拉取，后续 fetch 继续浅）：宿�
 
 ## 验证计划
 
-- **编译/静态**：宿主 `cargo check`（Linux 目标）通过；`check-gpui-lock-pin.sh` 通过；宿主与 gpui-kit 的 lock 中 `gpui-pre` 版本一致（脚本比对）。
+- **编译/静态**：托盘仓库 `cargo clippy -p gpui-tray --all-targets -- --deny warnings` 与 `cargo test -p gpui-tray` 通过（Linux/macOS/Windows 三平台）；`gpui-fast` flavor 单独编译一遍；`script/check-gpui-kit-pin.py` 确认托盘 pin 的 `gpui-pre` / `gpui-fast` 与已发布 gpui-kit 一致；`examples/tray_demo` 针对已发布 gpui-kit 编译通过。
 - **M1 验收（Linux）**：tray_demo 在 KDE Wayland 下图标出现、DBusMenu 弹出、勾选项状态正确、点击 `Show Window` 恢复窗口、`Quit` 退出；GNOME+扩展同等通过；X11 会话同等通过；无扩展环境应用正常启动且 `is_available()==false`。
 - **M2 验收（macOS）**：菜单栏图标出现、template 图标随系统深浅色自适应、菜单动作触发 gpui Action、Accessory 模式下 Dock 无图标且托盘功能完整、close-to-tray 后点击托盘恢复。
 - **M3 验收（Windows）**：托盘区图标、右键原生菜单、左键行为符合配置、close-to-tray 后 taskbar 项消失、托盘恢复后回归。

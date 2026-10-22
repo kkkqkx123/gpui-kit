@@ -23,4 +23,11 @@ netwrok = "netwrok"
 workspce = "workspce"
 
 [files]
-extend-exclude = ["crates/story/src/fixtures/"]
+# The submodules are separate repositories with their own checks; their sources
+# are not part of this repository's text.
+extend-exclude = [
+    "crates/story/src/fixtures/",
+    "crates/autostart/",
+    "crates/compograph/",
+    "crates/tray/",
+]

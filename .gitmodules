@@ -6,3 +6,6 @@
 	path = crates/autostart
 	url = https://github.com/kkkqkx123/gpui-autostart
 	active = true
+[submodule "crates/tray"]
+	path = crates/tray
+	url = https://github.com/kkkqkx123/gpui-tray

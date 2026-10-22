@@ -12,10 +12,6 @@ members = [
     "crates/assets",
     "crates/fps",
     "crates/webview",
-    # Local crates are listed among the other libraries rather than at the end
-    # of the list: new workspace members are appended at the end, so an entry
-    # there would overlap the next upstream addition and conflict on merge.
-    "crates/tray",
     "examples/app_assets",
     "examples/fps_monitor",
     "examples/hello_world",
@@ -43,7 +39,6 @@ members = [
     "examples/markdown_table",
     "examples/ai_recipes",
     "examples/speech",
-    "examples/tray_demo",
     "crates/shell",
     "crates/shell/rquickjs-compat",
 ]
@@ -63,12 +58,6 @@ gpui-fps = { path = "crates/fps", version = "0.8.0" }
 gpui-shell = { path = "crates/shell", version = "0.8.0" }
 gpui-webview = { path = "crates/webview", version = "0.8.0" }
 story = { path = "crates/story" }
-# `gpui-tray` is a local, unpublished crate that does not follow the release
-# version line, so it declares no version and sits below the versioned block.
-# The release tooling rewrites the versioned entries above as one contiguous
-# run; an entry placed directly after that run would overlap it and turn every
-# release merge into a conflict. Keep this line separated from it.
-gpui-tray = { path = "crates/tray" }
 
 # GPUI comes from the `gpui-pre-*` snapshots of Zed's crates, and any snapshot
 # may change GPUI's API. These requirements are what the published gpui-kit

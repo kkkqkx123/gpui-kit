@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Verify that the host workspace pins the exact same `gpui-pre` snapshot that is
-# actually resolved in Cargo.lock. Since gpui-kit inherits the `gpui` dependency
-# through `[workspace.dependencies]`, this guarantees one GPUI type universe is
-# linked into the process (the failure mode called out in
-# docs/plan/tray-menubar-feature.md).
+# Verify that this workspace pins the exact same `gpui-pre` snapshot that is
+# actually resolved in Cargo.lock. Since the crates inherit the `gpui`
+# dependency through `[workspace.dependencies]`, this guarantees one GPUI type
+# universe is linked into the process.
 #
 # This complements `script/check-gpui-pin.ts`, which checks the shape of the
 # pin in the manifest; this script checks that the lockfile agrees with it.
