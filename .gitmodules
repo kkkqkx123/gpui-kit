@@ -2,3 +2,7 @@
 	path = crates/compograph
 	url = https://github.com/kkkqkx123/compograph.git
 	active = true
+[submodule "crates/autostart"]
+	path = crates/autostart
+	url = https://github.com/kkkqkx123/gpui-autostart
+	active = true
