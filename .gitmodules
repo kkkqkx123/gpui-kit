@@ -9,3 +9,6 @@
 [submodule "crates/tray"]
 	path = crates/tray
 	url = https://github.com/kkkqkx123/gpui-tray
+[submodule "crates/global-hotkey"]
+	path = crates/global-hotkey
+	url = https://github.com/kkkqkx123/gpui-global-hotkey
