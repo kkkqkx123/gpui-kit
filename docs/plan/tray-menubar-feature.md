@@ -1,7 +1,5 @@
 # 系统托盘/菜单栏图标（Tray）功能设计
 
-日期：2026-10-16 · 状态：设计稿（待评审）
-
 ## 结论
 
 - gpui（本仓库 pin 的 `gpui-pre =0.3.9` 快照）与 gpui-kit 当前均无托盘能力，需要在本仓库以自有 crate 补齐；gpui 已具备的四个相邻能力——原生 app menu、锚定父窗口的 popup、Wayland layer-shell、DBus 系统通知——分别提供了 API 形态、能力边界、平台扩展点与事件桥接的模板。
@@ -113,7 +111,7 @@ win32 消息线程           ─┘        TrayEvent::{IconActivated,           
 
 - `Tray::new(cx)` 保存 `AsyncApp`（`cx.to_async()`，同 `init_app_menus`），并 `cx.spawn` 一个桥接任务，循环收事件后 `cx.update`；
 - 菜单项激活优先映射为 `Action`：`cx.dispatch_action(&action)`，可用性沿用 `cx.is_action_available` 校验（与原生 app menu 行为一致）；非 Action 项用 `Box<dyn FnMut(&mut App)>` 回调兜底；
-- 反向通道（主线程 → 后端）：`Tray` 句柄 `Clone + Send`，后端各自保证线程安全（ksni `Handle::update` 本身跨线程；macOS 更新方法内部经主线程 executor 转发；Windows tray-icon API 自带线程安全），`set_icon/set_menu/set_tooltip` 从任意 gpui update 中调用即可。
+- 反向通道（主线程 → 后端）：`Tray` 句柄 `Clone` 但 `!Send`（更正：主线程句柄），后端各自保证线程安全（ksni `Handle::update` 本身跨线程；macOS 更新方法内部经主线程 executor 转发；Windows tray-icon API 自带线程安全），setter 统一接 `&mut App` 并返回 `Result`，从主线程 gpui update 中调用即可。
 
 ### 菜单统一模型与平台渲染
 
@@ -124,14 +122,14 @@ pub enum TrayMenuItem {
     Item(TrayItem),
 }
 pub struct TrayItem {
-    pub id: MenuItemId,                       // 稳定 id，事件回传用
+    pub id: TrayItemId,                       // TrayItemId，私有字段 + builder，事件回传用
     pub label: SharedString,
     pub enabled: bool,
     pub checked: Option<bool>,                // Some => checkbox/radio 项
     pub action: Option<Box<dyn Action>>,      // 优先
     pub on_activate: Option<Box<dyn FnMut(&mut App)>>,  // 兜底
     pub accelerator: Option<Keystroke>,       // 仅 macOS NSMenu 渲染
-    pub icon: Option<TrayIconRef>,            // 主题图标名/位图，Linux 走 icon-name
+    pub icon: Option<TrayIcon>,
 }
 ```
 
@@ -254,7 +252,7 @@ impl Tray {
     pub fn set_icon(&self, icon: Option<TrayIconData>);
     pub fn set_tooltip(&self, tooltip: Option<SharedString>);
     pub fn set_menu(&self, menu: TrayMenu);      // 全量替换
-    pub fn set_left_click_action(&self, behavior: LeftClick); // Menu | ActivateWindow
+    // 左键行为在创建期经 TrayOptionsBuilder::with_left_click 固定（LeftClick::None | Menu | Action）。
 }
 
 // 用法（examples/tray_demo）：
