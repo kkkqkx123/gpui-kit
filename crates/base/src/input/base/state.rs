@@ -7,8 +7,8 @@ use gpui::{
     Action, App, AppContext, Bounds, ClipboardItem, Context, Edges, Entity, EntityInputHandler,
     EventEmitter, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Point,
-    Render, ScrollHandle, ScrollWheelEvent, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Subscription, UTF16Selection, WeakFocusHandle, Window, actions, div, point,
+    Render, ScrollEvent, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, UTF16Selection, WeakFocusHandle, Window, actions, div, point,
     prelude::FluentBuilder as _, px,
 };
 use gpui::{Autocapitalize, TextInputAction, TextInputConfiguration};
@@ -175,7 +175,11 @@ pub(crate) fn init(cx: &mut App) {
             Some(CONTEXT),
         ),
         KeyBinding::new(
-            "secondary-enter",
+            if cx.platform_info().is_mac() {
+                "cmd-enter"
+            } else {
+                "ctrl-enter"
+            },
             Enter {
                 secondary: true,
                 shift: false,
@@ -468,6 +472,9 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) input_bounds: Bounds<Pixels>,
     /// The text bounds
     pub(super) last_bounds: Option<Bounds<Pixels>>,
+    /// The fully visible part of the window this input last asked its scroll
+    /// containers to reveal it in, while focused. `None` while unfocused.
+    pub(super) revealed_viewport: Option<Bounds<Pixels>>,
     pub(super) last_selected_range: Option<CursorSelection>,
     pub(super) selecting: bool,
     /// Anchor point of an in-progress columnar (block) selection.
@@ -520,6 +527,9 @@ pub struct InputBaseState<M: InputModeKind> {
     /// freeze in a different place.
     projected_editor_style: InputEditorStyle,
     accessibility: Option<InputAccessibility>,
+    /// What paints in place of Base's editor scrollbar, when a consumer
+    /// supplies its own.
+    pub(super) scrollbar_renderer: Option<crate::input::EditorScrollbarRenderer>,
 
     /// The mask pattern for formatting the input text
     pub(crate) mask_pattern: MaskPattern,
@@ -767,6 +777,8 @@ impl<M: InputModeKind> InputBaseState<M> {
         let wrap_width = (width - RIGHT_MARGIN).max(px(1.));
         self.display_map.set_font(font, font_size, cx);
         self.display_map
+            .set_tab_size(self.mode.tab_size().tab_size, cx);
+        self.display_map
             .on_layout_changed(self.soft_wrap.then_some(wrap_width), cx);
         self.display_map
             .set_wrapping_indent(self.wrapping_indent, cx);
@@ -980,6 +992,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             last_layout: None,
             prepaint_caret_geometry: None,
             last_bounds: None,
+            revealed_viewport: None,
             last_selected_range: None,
             column_select_start: None,
             last_cursor: None,
@@ -997,6 +1010,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             editor_style: InputEditorStyle::default(),
             projected_editor_style: InputEditorStyle::default(),
             accessibility: None,
+            scrollbar_renderer: None,
             diagnostic_popover: None,
             context_menu_handler: None,
             pending_context_menu: None,
@@ -1122,6 +1136,20 @@ impl<M: InputModeKind> InputBaseState<M> {
     #[doc(hidden)]
     pub fn set_editor_paddings(&mut self, paddings: Edges<Pixels>) {
         self.editor_paddings = paddings;
+    }
+
+    /// Supply the element painted in place of the editor's scrollbar, or
+    /// `None` to keep Base's. The renderer is called where the editor paints
+    /// its scrollbar, with that frame's [`EditorScrollbarContext`]. Like
+    /// [`Self::set_editor_style`], this does not notify, so it can be called
+    /// while rendering.
+    ///
+    /// [`EditorScrollbarContext`]: crate::input::EditorScrollbarContext
+    pub fn set_scrollbar_renderer(
+        &mut self,
+        renderer: Option<crate::input::EditorScrollbarRenderer>,
+    ) {
+        self.scrollbar_renderer = renderer;
     }
 
     pub fn apply_highlighter_fold_candidates(
@@ -2813,7 +2841,7 @@ impl<M: InputModeKind> InputBaseState<M> {
 
     pub(super) fn on_scroll_wheel(
         &mut self,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3873,6 +3901,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     }
 
     fn on_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.revealed_viewport = None;
         if M::is_context_menu_open(self, cx) {
             return;
         }
@@ -5078,7 +5107,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
                 window.listener_for(&entity, InputBaseState::on_mouse_up),
             )
             .on_mouse_move(window.listener_for(&entity, InputBaseState::on_mouse_move))
-            .on_scroll_wheel(window.listener_for(&entity, InputBaseState::on_scroll_wheel))
+            .on_scroll(window.listener_for(&entity, InputBaseState::on_scroll_wheel))
             .when(self.is_multi_line() && !self.disabled, |this| {
                 this.on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
             })
@@ -6052,7 +6081,7 @@ mod tests {
     use crate::theme::Theme;
     use gpui::{TestAppContext, VisualTestContext, size};
 
-    use crate::input::{EditorMode, EditorState, InputMode, LanguageConfig, TextareaMode};
+    use crate::input::{EditorMode, EditorState, InputMode, LanguageConfig, TabSize, TextareaMode};
 
     fn set_test_syntax_provider(
         provider: Rc<dyn crate::input::SyntaxContextProvider>,
@@ -6162,7 +6191,7 @@ mod tests {
         cx.update(|window, cx| {
             view.input.update(cx, |state, cx| {
                 state.on_scroll_wheel(
-                    &ScrollWheelEvent {
+                    &ScrollEvent {
                         delta: gpui::ScrollDelta::Pixels(point(px(0.), px(dy))),
                         touch_phase: phase,
                         ..Default::default()
@@ -6308,7 +6337,7 @@ mod tests {
         cx.update(|window, cx| {
             view.input.update(cx, |state, cx| {
                 state.on_scroll_wheel(
-                    &ScrollWheelEvent {
+                    &ScrollEvent {
                         delta: gpui::ScrollDelta::Pixels(point(px(1.), px(0.))),
                         touch_phase: gpui::TouchPhase::Ended,
                         ..Default::default()
@@ -6340,7 +6369,7 @@ mod tests {
             window.draw(cx).clear(cx);
             view.input.update(cx, |state, cx| {
                 state.on_scroll_wheel(
-                    &ScrollWheelEvent {
+                    &ScrollEvent {
                         delta: gpui::ScrollDelta::Lines(point(0., -100_000.)),
                         touch_phase: gpui::TouchPhase::Moved,
                         ..Default::default()
@@ -6369,7 +6398,7 @@ mod tests {
             window.draw(cx).clear(cx);
             view.input.update(cx, |state, cx| {
                 state.on_scroll_wheel(
-                    &ScrollWheelEvent {
+                    &ScrollEvent {
                         delta: gpui::ScrollDelta::Lines(point(0., 2.)),
                         touch_phase: gpui::TouchPhase::Moved,
                         ..Default::default()
@@ -6455,7 +6484,7 @@ mod tests {
             .update(cx, |_, window, cx| {
                 input.update(cx, |state, cx| {
                     state.on_scroll_wheel(
-                        &ScrollWheelEvent {
+                        &ScrollEvent {
                             delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-40.))),
                             ..Default::default()
                         },
@@ -6476,7 +6505,7 @@ mod tests {
             .update(cx, |_, window, cx| {
                 input.update(cx, |state, cx| {
                     state.on_scroll_wheel(
-                        &ScrollWheelEvent {
+                        &ScrollEvent {
                             delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-40.))),
                             ..Default::default()
                         },
@@ -9259,6 +9288,38 @@ mod tests {
                 assert_eq!(rows, 2);
             }
         }
+    }
+
+    #[gpui::test]
+    fn test_prewrap_uses_the_configured_tab_stops(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        cx.open_window(size(px(400.), px(100.)), |window, cx| {
+            let font = window.text_style().font();
+            let font_size = px(14.);
+            let font_id = window.text_system().resolve_font(&font);
+            let space_width = window.text_system().layout_width(font_id, font_size, ' ');
+            cx.new(|cx| {
+                let mut state = crate::input::EditorState::new(window, cx)
+                    .tab_size(TabSize {
+                        tab_size: 4,
+                        hard_tabs: true,
+                    })
+                    .default_value("\t\t");
+                for (tab_size, expected_rows) in [(4, 2), (2, 1), (8, 2)] {
+                    state.set_tab_size(
+                        TabSize {
+                            tab_size,
+                            hard_tabs: true,
+                        },
+                        cx,
+                    );
+                    state.prewrap(font.clone(), font_size, space_width * 5. + RIGHT_MARGIN, cx);
+                    assert_eq!(state.display_map().wrap_row_count(), expected_rows);
+                }
+                state
+            });
+            gpui::EmptyView
+        });
     }
 
     /// Prewrap counts with the state's wrapping indent, as the first layout
