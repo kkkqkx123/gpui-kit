@@ -12,3 +12,6 @@
 [submodule "crates/global-hotkey"]
 	path = crates/global-hotkey
 	url = https://github.com/kkkqkx123/gpui-global-hotkey
+[submodule "crates/gpui-image"]
+	path = crates/gpui-image
+	url = https://github.com/kkkqkx123/gpui-image
