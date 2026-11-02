@@ -13,12 +13,12 @@
 
 compograph 是理解本方案的样板。它作为独立仓库（kkkqkx123/compograph）以 submodule 挂在 gpui-kit 的 `crates/compograph`，具备四个特征：
 
-1. **独立 workspace**：compograph 根目录自带 `[workspace]`（`crates/foundation|engine|render|app` 四层）、独立 `Cargo.lock`、独立 `rust-toolchain.toml`，与 gpui-kit 的工作区互不包含。gpui-kit 根 `Cargo.toml` 的 `members` 列表没有它，任何 gpui-kit crate 的依赖图里也完全没有 `cg-*` 包（已逐一核对 `crates/*/Cargo.toml`）——submodule 只是"源码放在树里"的组织手段，构建图完全解耦。
+1. **独立 workspace**：compograph 根目录自带 `[workspace]`（`crates/foundation|engine|render|app` 四层）与独立 `Cargo.lock`，与 gpui-kit 的工作区互不包含。gpui-kit 根 `Cargo.toml` 的 `members` 列表没有它，任何 gpui-kit crate 的依赖图里也完全没有 `cg-*` 包（已逐一核对 `crates/*/Cargo.toml`）——submodule 只是"源码放在树里"的组织手段，构建图完全解耦。
 2. **同源 gpui pin**：compograph 的 `[workspace.dependencies]` 直接从 crates.io 消费 `gpui-pre` / `gpui-pre-platform`，`=` 精确锁定，与 gpui-kit 的 pin 对齐（其 `docs/plan/compograph-gpui-pre-migration.md` 论证了"两端 gpui 必须同源，否则同一进程出现两套不相连的 gpui 类型"这一决定性约束）。
 3. **宿主零改动**：compograph 从不修改 gpui-kit 文件，gpui-kit 上游同步 = 更新 submodule 指针。
 4. **文档就地沉淀**：设计与迁移方案写在各仓库自己的 `docs/plan/`。
 
-本仓库的托盘已按同一模式接线：`git submodule add https://github.com/kkkqkx123/gpui-tray crates/tray`，`.gitmodules` 已生成。托盘仓库自带 `[workspace]`、独立 `Cargo.lock` 与独立 `rust-toolchain.toml`，不在本仓库的 `members` 列表里，也不进本仓库的 `Cargo.lock`——submodule 在这里只是"源码放在树里"的组织手段，构建图完全解耦。
+本仓库的托盘已按同一模式接线：`git submodule add https://github.com/kkkqkx123/gpui-tray crates/tray`，`.gitmodules` 已生成。托盘仓库自带 `[workspace]` 与独立 `Cargo.lock`（原独立 `rust-toolchain.toml` 已随 beta 清理移除，改用默认 stable），不在本仓库的 `members` 列表里，也不进本仓库的 `Cargo.lock`——submodule 在这里只是"源码放在树里"的组织手段，构建图完全解耦。
 
 ### gpui 平台能力盘点（gpui-pre 0.3.9，与本功能相关）
 
@@ -180,7 +180,7 @@ pub struct TrayIconData { pub width: u32, pub height: u32, pub rgba: Vec<u8> } /
 kkkqkx123/gpui-tray（托盘独立仓库）
 ├── .github/workflows/ci.yml            # 三平台 lint + test，flavor 校验
 ├── Cargo.toml                          # 独立 workspace（自带 [workspace]）
-├── rust-toolchain.toml                 # 自持工具链（beta，与 gpui-kit 一致）
+├── （无 rust-toolchain.toml，使用默认 stable）
 ├── script/
 │   ├── check-gpui-kit-pin.py           # 与已发布 gpui-kit 的 pin 相等性校验
 │   └── install-linux.sh                # CI 的系统依赖
@@ -290,7 +290,7 @@ git add crates/tray && git commit -m "chore: bump the tray submodule"
 
 ## 实施步骤
 
-- **M0 仓库接线**（已落地）：托盘独立仓库 `kkkqkx123/gpui-tray`（自带 workspace、`rust-toolchain.toml`、三平台 CI、`script/check-gpui-kit-pin.py`），本仓库以 submodule 挂在 `crates/tray`，根 `Cargo.toml` / `Cargo.lock` 与上游逐字一致。
+- **M0 仓库接线**（已落地）：托盘独立仓库 `kkkqkx123/gpui-tray`（自带 workspace、三平台 CI、`script/check-gpui-kit-pin.py`；原 `rust-toolchain.toml` 已移除），本仓库以 submodule 挂在 `crates/tray`，根 `Cargo.toml` / `Cargo.lock` 与上游逐字一致。
 - **M1 核心 + Linux 后端**：`menu.rs`/`event.rs` 模型与桥接、ksni 后端（含 sRGBA→ARGB32 预乘转换）、`tray_demo`（Linux 可真机验证：KDE 与 GNOME+扩展 × Wayland/X11）、无 watcher 降级路径单测。
 - **M2 macOS 后端**：objc2 NSStatusItem/NSMenu 薄层（对齐 objc2 0.6）、template icon、Accessory 策略验证、accelerator 渲染。
 - **M3 Windows 后端**：tray-icon 接入、左键行为配置、事件 channel 桥接核对。

@@ -2,7 +2,7 @@
 
 状态：已明确，待评审。基于 `kkkqkx123/gpui-kit` 当前 `main` 源码静态分析；
 所有事实均附 `file:line` 引用。原草案中关于工具链与镜像站的环境描述已经过时，
-本文不将其作为依据；工具链统一以仓库 `rust-toolchain.toml` 现状为准。
+本文不将其作为依据；工具链统一使用默认 stable（仓库已删除 `rust-toolchain.toml`，与上游一致）。
 
 ## 〇、结论速览
 
@@ -126,13 +126,13 @@ GPUI 本身已具备图像渲染原语，gpui-kit 在其上做了少量封装：
 
 新建 crate **`gpui-image`**，定位为「图像处理 + 图像显示组件」的独立库。
 它是独立 git 仓库，经 `.gitmodules` 挂在 `crates/gpui-image`，自带 `[workspace]`、
-独立 `Cargo.lock`、独立 `rust-toolchain.toml`（与主仓库同频道，保持同步），
+独立 `Cargo.lock`（无自带工具链 pin，使用默认 stable，与主仓库一致），
 **不进入**主 workspace `members`（与 `tray` / `autostart` / `compograph` 一致的先例）。
 
 ```text
 crates/gpui-image/                # 独立 git 子仓库（submodule）
 ├── Cargo.toml                    # facade（gpui-image）+ workspace（members: crates/*, examples/*）
-├── rust-toolchain.toml           # 与主仓库同频道
+├── （无 rust-toolchain.toml，使用默认 stable）
 ├── script/check-gpui-kit-pin.py  # pin 对齐校验（仿 tray）
 ├── crates/
 │   ├── image-core/               # 解码/编码 + 处理原语（纯逻辑，无 GPUI 依赖）
@@ -323,7 +323,7 @@ setter、方法读取；布尔态用 `is_*`，其余用 `with_*` 前缀（`AGENT
 
 - [x] 本设计文档（`docs/plan/image-processing-display.md`）。
 - [x] `crates/gpui-image/` 独立 workspace 脚手架：
-  `Cargo.toml`（facade + `members: crates/*, examples/*`）、`rust-toolchain.toml`
+  `Cargo.toml`（facade + `members: crates/*, examples/*`）
   （与主仓库同频道）、`README.md` / `README_zh.md`、`LICENSE`、
   `script/check-gpui-kit-pin.py`。
 - [x] `crates/image-core`（`gpui-image-core`）：decode/resize/crop/rotate/flip/

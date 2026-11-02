@@ -23,7 +23,7 @@
         build-dependencies = with pkgs; [
           pkg-config # For dynamically linked libraries
           makeWrapper # To provide LD_LIBRARY_PATH to the final binary
-          (rust-bin.beta.latest.default.override {
+          (rust-bin.stable.latest.default.override {
             extensions = [ "rust-src" ];
           })
         ];
