@@ -193,3 +193,13 @@ consts = "consts"
 
 [workspace.metadata.cargo-machete]
 ignored = ["log", "anyhow", "serde"]
+
+# The Zed revision the pinned `gpui-pre` snapshot was cut from. It is the
+# single source of truth for the `gpui` (upstream Zed git) flavor of the
+# submodule satellites (`crates/autostart`, `crates/global-hotkey`): their
+# git `rev` must name this commit so every flavor shares one GPUI API
+# generation. `script/check-submodule-pins.py` enforces it. Move it together
+# with the `[workspace.dependencies]` snapshot pins above when a new snapshot
+# ships; the revision is recorded in the snapshot's `[package.metadata.gpui-pre]`.
+[workspace.metadata.gpui-kit]
+zed-rev = "08cbb88a152c3751a43e853425a70e9f631a5918"

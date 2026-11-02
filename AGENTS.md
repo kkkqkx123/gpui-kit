@@ -319,6 +319,13 @@ The `Icon` element does not include SVG files by default. You need to:
 - Refresh Cargo.lock after updating both backends, and verify the resolved
   versions. Do not tag or publish while either backend remains on an older
   published release. If already current, record that verification.
+- Move the submodule satellites onto the same snapshot in the same commit:
+  the backend pins in `crates/tray`, `crates/autostart`,
+  `crates/global-hotkey` and `crates/gpui-image`, the workspace pins in
+  `crates/compograph`, and `[workspace.metadata.gpui-kit] zed-rev` (the Zed
+  commit the snapshot was cut from, recorded in its
+  `[package.metadata.gpui-pre]`). Refresh their committed lockfiles and run
+  `python3 script/check-submodule-pins.py`.
 - Compile the default and `gpui-fast` configurations, and check public API
   compatibility against the previous release. Patch releases may include
   behavior changes, but must not require existing Rust consumers to change

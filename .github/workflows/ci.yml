@@ -41,11 +41,23 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: gpui-pre is pinned exactly
         run: bun script/check-gpui-pin.ts
+      - name: gpui-pre lockfile matches the pin
+        run: bash script/check-gpui-lock-pin.sh
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-machete@0.9.1
       - name: Machete
         run: cargo machete
+
+  submodule-pins:
+    name: Submodule GPUI pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Submodule backends match the host snapshot
+        run: python3 script/check-submodule-pins.py
 
   lint:
     name: Lint
