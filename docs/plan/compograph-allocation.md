@@ -5,7 +5,7 @@
 可见边表重建。方案按实测结果重排优先级，并已落地第一轮改造。
 
 分析依据见 `docs/analysis/dynamic-dispatch.md`，基线工具见
-`crates/compograph/crates/engine/cg-layout/benches/layout_cost.rs`。
+`crates/compograph/crates/cg-layout/benches/layout_cost.rs`。
 
 ## 一、验证方法
 

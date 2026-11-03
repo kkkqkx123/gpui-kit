@@ -24,11 +24,11 @@ cd crates/tray && cargo build -p tray_demo
 | 入口 | 可执行文件 |
 | --- | --- |
 | hotkey_probe | `crates/global-hotkey/target/debug/hotkey_probe.exe` |
-| autostart CLI | `crates/autostart/target/debug/examples/autostart.exe` |
+| autostart CLI | `crates/autostart/target/debug/autostart_demo.exe` |
 | tray_lifecycle | `crates/tray/target/debug/tray_lifecycle.exe` |
 | tray_demo | `crates/tray/target/debug/tray_demo.exe` |
 | image_demo | `crates/gpui-image/target/debug/image_demo.exe` |
-| compograph | `crates/compograph/target/debug/compograph.exe` |
+| compograph_demo | `crates/compograph/target/debug/compograph_demo.exe` |
 
 ## 1. global-hotkey：`hotkey_probe`（无窗口，退出码断言）
 
@@ -95,12 +95,12 @@ autostart.exe verify     # enable → 独立断言 → disable → 独立断言�
 
 ## 5. compograph：`--smoke-frames` 冒烟 + 完整编辑器人工验收
 
-源文件：`crates/compograph/crates/app/compograph/src/main.rs`。
+源文件：`crates/compograph/examples/compograph_demo/src/main.rs`。
 
 | 验证项 | 命令 | 期望 |
 | --- | --- | --- |
-| 帧冒烟 | `compograph.exe --smoke-frames 600` | 跑满 600 帧后自动退出，stdout 打印 `smoke: 600 frames in … (avg …/frame)`；记录本次均值作为基线 |
-| 交互验收 | `compograph.exe`（不带参数） | 完整编辑器：节点增删、连线、拖拽、缩放/平移；与 smoke 基线对照无明显卡顿 |
+| 帧冒烟 | `compograph_demo.exe --smoke-frames 600` | 跑满 600 帧后自动退出，stdout 打印 `smoke: 600 frames in … (avg …/frame)`；记录本次均值作为基线 |
+| 交互验收 | `compograph_demo.exe`（不带参数） | 完整编辑器：节点增删、连线、拖拽、缩放/平移；与 smoke 基线对照无明显卡顿 |
 
 ## 验收结果记录
 
