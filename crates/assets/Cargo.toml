@@ -9,10 +9,13 @@ repository = "https://github.com/longbridge/gpui-kit"
 readme = "README.md"
 edition.workspace = true
 publish = true
-version = "0.8.1"
+version = "0.11.0"
 
 # Retain Cargo icon-directory metadata for existing build-script consumers.
 links = "gpui-kit-default-icons"
+
+[lints]
+workspace = true
 
 [dependencies]
 anyhow.workspace = true
@@ -21,8 +24,8 @@ gpui-fast = { workspace = true, optional = true }
 log.workspace = true
 
 [dev-dependencies]
-gpui_platform.workspace = true
-gpui-fast-platform.workspace = true
+gpui_platform = { workspace = true, features = ["x11"] }
+gpui-fast-platform = { workspace = true, features = ["x11"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rust-embed = { version = "8.7.2", features = ["interpolate-folder-path", "include-exclude"] }

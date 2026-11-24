@@ -112,11 +112,20 @@ let editor = cx.new(|cx| {
         .folding(true)
         .show_whitespaces(true)
         .scroll_bounce(true)
+        .active_line_only_when_focused(true)
         .default_value(source)
 });
 ```
 
 `scroll_bounce(true)` 让超出编辑器高度的代码在触控板或 Magic Mouse 的精细像素滚动到达顶部或底部时越过边缘并弹回，与 [Textarea](./textarea.md#滚动回弹) 相同。行号栏随代码移动，外框和滚动条保持不动；普通鼠标滚轮的按行滚动不触发回弹。
+
+`active_line_only_when_focused(true)` 让当前行的行号、当前行背景和光标所在行的折叠按钮只在编辑器或其右键菜单获得焦点时显示，这样界面上有多个编辑器时，只有获得焦点的那个显示当前行。
+
+滚动条默认位于右侧和底部。使用 `scrollbar_placement` 可调整其位置；放在左侧的纵向滚动条位于编辑器左边缘，覆盖在行号之上。与覆盖最后一行的底部滚动条一样，顶部滚动条覆盖在第一行之上，不为自身预留空间。运行时可用 `set_scrollbar_placement` 替换位置。
+
+```rust
+EditorState::new(window, cx).scrollbar_placement(ScrollbarPlacement::BottomLeft)
+```
 
 ## 主动补全
 
@@ -345,11 +354,61 @@ let ruler = editor.update(cx, |state, cx| {
   按惯例，版本控制使用 `Left`，搜索结果使用 `Center`，诊断使用 `Right`。每个标记按所在行占内容高度的比例定位，
   高度至少为 6 px。同一分区中颜色相同且相互接触的标记会合并。
 - 标记绘制在滚动条下方，无论滚动条是 Base 提供的还是由 `set_scrollbar_renderer` 提供的。
-  滑块淡出时，标记仍然可见。
+  滑块淡出时，标记仍然可见。`scrollbar_placement` 放在左侧时，轨道和标记随之移到左边缘；
+  自定义滚动条通过 `EditorScrollbarContext::placement` 读取位置。
 - 不调用 `with_color` 时，两个集合都使用编辑器前景色。版本控制的颜色可以读取高亮主题中
   Zed 的状态键 `created`、`modified` 和 `deleted`，对应方法为 `status.created(cx)`、
   `status.modified(cx)` 和 `status.deleted(cx)`。缺少对应键时，这些方法分别使用 `success`、
   `warning` 和 `error`。
+
+### 行装饰
+
+`LineDecorationCollection` 以整行为单位绘制：横跨所装饰行的背景色带。
+条目由 `LineDecorationProvider` 提供：编辑器每绘制一帧，都会以当前可见的缓冲区行范围询问它。
+
+```rust
+use std::{ops::Range, rc::Rc};
+
+use gpui_kit::App;
+use gpui_kit::component::{
+    ActiveTheme as _,
+    input::{LineDecoration, LineDecorationProvider},
+};
+
+/// 从零开始的缓冲区行，已排序。
+struct AddedRows(Vec<usize>);
+
+impl LineDecorationProvider for AddedRows {
+    fn line_decorations(&self, rows: Range<usize>, cx: &App) -> Vec<LineDecoration> {
+        let start = self.0.partition_point(|&row| row < rows.start);
+        let end = self.0.partition_point(|&row| row < rows.end);
+        self.0[start..end]
+            .iter()
+            .map(|&row| LineDecoration::new(row).with_background(cx.theme().success.opacity(0.16)))
+            .collect()
+    }
+}
+
+let added = editor.update(cx, |state, cx| {
+    state.create_line_decorations_collection(Rc::new(AddedRows(vec![2, 3, 7])), cx)
+});
+
+added.set_provider(Rc::new(AddedRows(vec![4])), cx); // 下一帧改为询问它。
+added.clear(cx);   // 停止绘制，但保留集合以便复用。
+added.dispose(cx); // 释放集合，使该句柄及其克隆全部失效。
+```
+
+由于每一帧都会重新询问 provider，行由 provider 自己维护：编辑器不会随编辑移动这些行，
+替换全文时也不会清空它们，并且会忽略询问范围之外的装饰。请按行为数据建立索引，让回答保持轻量；
+在被询问时从 `cx` 读取颜色，使其跟随主题变化。与其他装饰集合一样，各集合相互独立；
+后创建的集合绘制在先创建的集合之上。
+
+背景横跨整行（包括行号槽），覆盖该行软换行后的全部显示行，位于当前行高亮、缩进参考线、
+选区和文字下方。它不影响命中测试或焦点，也不提供鼠标或键盘操作。
+
+`EditorState::row_bounds(row)` 返回某一行在窗口坐标中实际绘制的区域：多行内联补全下方的行会随
+文字一起下移。该行尚未布局时返回 `None`。
+Editor 展示页的 **Decorations** 标签用 provider 为最后两行着色。
 
 ## 值与事件
 
@@ -395,7 +454,8 @@ let rows = editor.read(cx).display_map().wrap_row_count();
 ## 字体
 
 Editor 默认使用主题中的等宽字体 —— `mono_font_family` 和 `mono_font_size`，行高为字号的
-1.5 倍。这只是默认值：在 Editor 上设置的文本样式会覆盖它，gutter 和行高都跟随字号变化。
+1.5 倍。这只是默认值：在 Editor 上设置的文本样式会覆盖它，行高跟随字号变化。
+未单独设置行号字体时，行号也使用正文的字体和字号。
 主题加载时会核对平台默认等宽字体（`Menlo`、`Consolas`、`DejaVu Sans Mono`）是否已安装，
 缺失时换成已安装的等宽字体，再不行退到 `.SystemUIFont`；你自己指定的字体族则原样使用。
 
@@ -409,6 +469,55 @@ Editor::new(&editor)
 
 这些就是所有元素都有的 [`Styled`](https://docs.rs/gpui/latest/gpui/trait.Styled.html)
 方法，`font_weight`、`line_height` 用法相同。
+
+### 行号样式
+
+在每个 `Editor` 上设置行号样式，只指定需要覆盖继承默认值的属性：
+
+```rust
+use gpui_kit::{px, rems, component::{ActiveTheme as _, input::{Editor, GutterStyle}}};
+
+// 使用 rems，让间距和字号随界面缩放保持比例。
+Editor::new(&editor).gutter_style(
+    GutterStyle::default()
+        .with_gap(rems(0.75))
+        .with_line_number_color(cx.theme().muted_foreground)
+        .with_active_line_number_color(cx.theme().foreground)
+        .with_line_number_font_family("JetBrains Mono")
+        .with_line_number_font_size(rems(0.875)),
+);
+
+// 需要让行号栏保持固定的逻辑像素尺寸时使用 px。
+// 这些值不会随界面缩放。
+// AbsoluteLength 由 GPUI 直接解析，行号栏不添加任何缩放逻辑。
+Editor::new(&editor).gutter_style(
+    GutterStyle::default()
+        .with_gap(px(12.))
+        .with_line_number_font_size(px(14.)),
+)
+```
+
+未指定的属性沿用编辑器现有默认值：间距固定为 6px，
+普通行号和当前行号分别使用编辑器的次要前景色和前景色，字体及字号跟随正文。
+显式设置的透明色会保留。间距位于行号和折叠控件区域与正文之间。
+行号字体和字号同时用于宽度测量与绘制，不会改变正文的字体或行高。
+
+`with_gap` 和 `with_line_number_font_size` 接受 `impl Into<AbsoluteLength>`，
+与 GPUI 的字号使用相同的长度类型。`rems(...)` 随窗口当前的 rem 大小缩放，`px(...)` 保持固定。
+`rems(0.75)` 与 `gap_3()` 相同，窗口的 rem 大小为 24px 时解析为 18px。
+读取方法返回配置的 `AbsoluteLength`，保留原始单位。未指定行号字体或字号时直接继承正文样式。
+正文需要跟随界面缩放时，请使用 `text_size(rems(...))` 或 `text_sm()` 等相对尺寸方法。
+
+`GutterStyle` 的读取方法使用属性名，
+例如 `gap()` 和 `line_number_color()`。
+后续渲染时省略 `gutter_style` 即恢复继承的默认值。
+`GutterStyle` 属于 Component，不会存入 Base 的编辑器状态。
+Component 在每帧测量行号区域并整形可见行号；Base 使用结果处理定位、换行、滚动和指针坐标。
+直接使用 Base 的应用可通过 `Editor::with_line_number_renderer` 和
+`EditorLineNumberRenderer` 提供计算后的尺寸和整形后的行号。
+
+行号在折叠控件之前右对齐。行号区域按指定字体中最宽的数字为每一位预留宽度，
+至少预留三位，最多七位。
 
 ## 尺寸
 

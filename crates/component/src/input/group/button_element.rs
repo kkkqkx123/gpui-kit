@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement,
-    LayoutId, Pixels, Window,
+    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, LayoutId,
+    Pixels, Window,
 };
 
 use super::InputGroupButton;
@@ -37,14 +37,6 @@ pub(super) fn unwrapped_element(mut element: &mut AnyElement) -> &mut AnyElement
         element = element.downcast_mut::<AnyElement>().unwrap();
     }
     element
-}
-
-impl IntoElement for InputGroupButtonElement {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl Element for InputGroupButtonElement {

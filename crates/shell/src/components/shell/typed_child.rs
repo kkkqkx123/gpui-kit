@@ -24,14 +24,6 @@ impl<T: 'static> Carrier<T> {
     }
 }
 
-impl<T: 'static> gpui::IntoElement for Carrier<T> {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl<T: 'static> Element for Carrier<T> {
     type RequestLayoutState = gpui::AnyElement;
     type PrepaintState = ();

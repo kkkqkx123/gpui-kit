@@ -9,7 +9,7 @@ use gpui::{
     StyleRefinement, Styled, Window, WindowControlArea, anchored, div, hsla, point,
     prelude::FluentBuilder, px,
 };
-use gpui_base::{ElementExt as _, TextSelectionScopeId, motion::Transition};
+use gpui_base::{ElementExt as _, LogicalStyledExt as _, TextSelectionScopeId, motion::Transition};
 use rust_i18n::t;
 
 use crate::{
@@ -290,6 +290,15 @@ impl BaseDialogRoot {
     }
 }
 
+impl Styled for BaseDialogRoot {
+    fn style(&mut self) -> &mut StyleRefinement {
+        match self {
+            Self::Dialog(root) => root.style(),
+            Self::AlertDialog(root) => root.style(),
+        }
+    }
+}
+
 impl IntoElement for BaseDialogRoot {
     type Element = <gpui_base::Dialog as IntoElement>::Element;
     fn into_element(self) -> Self::Element {
@@ -327,6 +336,8 @@ pub struct Dialog {
     /// This will be change when open the dialog, the focus handle is create when open the dialog.
     pub(crate) focus_handle: FocusHandle,
     pub(crate) layer_ix: usize,
+    /// The open dialogs beneath this one, which set its stacking offset.
+    pub(crate) stack_depth: usize,
     pub(crate) selection_scope: TextSelectionScopeId,
     pub(crate) motion: Option<DialogMotion>,
     pub(crate) id: usize,
@@ -374,6 +385,7 @@ impl Dialog {
             props: DialogProps::default(),
             children: Vec::new(),
             layer_ix: 0,
+            stack_depth: 0,
             selection_scope: TextSelectionScopeId::default(),
             button_props: DialogButtonProps::default(),
             motion: None,
@@ -665,7 +677,7 @@ impl RenderOnce for Dialog {
         // viewport by default); an overflowing one is snapped up to this edge
         // margin so that the preferred offset does not waste usable height.
         let margin = cx.theme().spacing_tokens().lg;
-        let layer_offset = px(layer_ix as f32 * 16.);
+        let layer_offset = px(self.stack_depth as f32 * 16.);
         let (anchor, y) = if self.props.centered {
             (Anchor::LeftCenter, view_size.height / 2.)
         } else {
@@ -733,6 +745,13 @@ impl RenderOnce for Dialog {
                             .take()
                             .expect("Dialog base host is always present")
                             .layer(self.id, is_topmost)
+                            // Base anchors the host to the whole viewport, which includes the
+                            // client-decoration shadow inset; keep it and its backdrop inside
+                            // the visible window frame.
+                            .top(window_paddings.top)
+                            .left(window_paddings.left)
+                            .w(view_size.width)
+                            .h(view_size.height)
                             .focus_handle(self.focus_handle.clone())
                             .close_on_escape(self.props.keyboard && !closing)
                             .close_on_backdrop_press(self.props.overlay_closable && !closing)
@@ -850,7 +869,7 @@ impl RenderOnce for Dialog {
                                             gpui_base::DialogClose::new()
                                                 .absolute()
                                                 .top(top)
-                                                .right(right)
+                                                .inset_e(right, cx)
                                                 .trigger(|button| {
                                                     Button::new("close")
                                                         .with_base(button)
@@ -1258,6 +1277,37 @@ pub(crate) mod tests {
         });
         assert_eq!(surface(cx, 0).top(), px(80.));
         assert!(cx.debug_bounds("dialog-1").is_none());
+    }
+
+    /// A dialog opened while the previous one is leaving takes the place of a
+    /// lone dialog, rather than stacking on the closing one and snapping into
+    /// place when its exit ends.
+    #[gpui::test]
+    fn a_closing_dialog_does_not_offset_the_next_one(cx: &mut TestAppContext) {
+        for body_height in [px(40.), px(1000.)] {
+            let cx = window(cx, size(px(1000.), px(800.)));
+            cx.update(|_, cx| cx.set_reduce_motion(false));
+            open(cx, |dialog, _, _| dialog.title("First").child("body"));
+            cx.background_executor.advance_clock(*ANIMATION_DURATION);
+            frame(cx);
+            cx.update(|window, cx| window.close_dialog(cx));
+            frame(cx);
+
+            open(cx, move |dialog, _, _| {
+                dialog
+                    .title("Second")
+                    .child(div().h(body_height))
+                    .entrance(DialogEntrance::None)
+            });
+            let during_exit = surface(cx, 1);
+
+            cx.background_executor
+                .advance_clock(*ANIMATION_DURATION + Duration::from_millis(1));
+            frame(cx);
+            frame(cx);
+            assert!(cx.debug_bounds("dialog-1").is_none());
+            assert_eq!(during_exit, surface(cx, 0));
+        }
     }
 
     /// Closing the top of a stack only removes that dialog: the one below stays

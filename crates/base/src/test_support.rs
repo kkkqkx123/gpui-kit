@@ -3,15 +3,18 @@
 //! Native accessibility properties are read automatically. Applications register
 //! identified GPUI elements with `.test_support()`, without supplying test-only state.
 use gpui::{
-    App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, Hitbox, InspectorElementId,
-    InteractiveElement, IntoElement, LayoutId, Pixels, SharedString, Visibility, Window, px,
+    App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, Hitbox, ImageSource,
+    InspectorElementId, InteractiveElement, LayoutId, Pixels, SharedString, SharedUri, Visibility,
+    Window, px,
 };
+use image::{Frame, RgbaImage};
 use smallvec::SmallVec;
 use std::{
     cell::RefCell,
     collections::HashMap,
     fmt,
     rc::{Rc, Weak},
+    sync::Arc,
 };
 
 /// Owned facts from the last paint of an observed element.
@@ -242,7 +245,7 @@ fn descendant_id(window: &mut Window, path: &[ElementId]) -> GlobalElementId {
 thread_local! { static TEXTS: RefCell<HashMap<WindowKey, Vec<TextSnapshot>>> = RefCell::new(HashMap::new()); }
 
 fn window_key(window: &Window) -> WindowKey {
-    std::sync::Arc::as_ptr(window.text_system()) as usize
+    std::rc::Rc::as_ptr(window.text_system()) as usize
 }
 
 /// Forgets the text of the previous frame. Root calls it as it renders.
@@ -312,8 +315,7 @@ pub fn find(window: &Window, scope: &[ElementId], id: &ElementId) -> Option<Elem
 pub fn find_all(window: &Window, scope: &[ElementId], id: &ElementId) -> Vec<ElementSnapshot> {
     let mut matches: Vec<_> = REGISTRY.with(|registry| {
         let registry = registry.borrow();
-        let Some(entries) = registry.get(&(std::sync::Arc::as_ptr(window.text_system()) as usize))
-        else {
+        let Some(entries) = registry.get(&window_key(window)) else {
             return Vec::new();
         };
         entries
@@ -336,7 +338,7 @@ pub fn snapshots(window: &Window) -> Vec<ElementSnapshot> {
     REGISTRY.with(|registry| {
         registry
             .borrow()
-            .get(&(std::sync::Arc::as_ptr(window.text_system()) as usize))
+            .get(&window_key(window))
             .map(|entries| {
                 entries
                     .values()
@@ -451,12 +453,6 @@ impl<E: Element> Observed<E> {
         }
     }
 }
-impl<E: Element<PrepaintState = Option<Hitbox>> + InteractiveElement> IntoElement for Observed<E> {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
 impl<E: Element<PrepaintState = Option<Hitbox>> + InteractiveElement> Element for Observed<E> {
     type RequestLayoutState = E::RequestLayoutState;
     type PrepaintState = (Option<Hitbox>, Rc<Registration>);
@@ -510,7 +506,7 @@ impl<E: Element<PrepaintState = Option<Hitbox>> + InteractiveElement> Element fo
             window.with_element_state(global_id, |state: Option<Rc<Registration>>, window| {
                 let registration = state.unwrap_or_else(|| {
                     Rc::new(Registration {
-                        window: std::sync::Arc::as_ptr(window.text_system()) as usize,
+                        window: window_key(window),
                         global_id: global_id.clone(),
                         facts: RefCell::new(facts.clone()),
                         semantic_owner: RefCell::new(None),
@@ -645,12 +641,6 @@ impl<E: Element> ObservedText<E> {
         ObservedText::new(self.inner.id(id), self.text, self.alternative)
     }
 }
-impl<E: Element> IntoElement for ObservedText<E> {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
 impl<E: Element> Element for ObservedText<E> {
     type RequestLayoutState = E::RequestLayoutState;
     type PrepaintState = E::PrepaintState;
@@ -736,3 +726,37 @@ impl<E: Element + gpui::StatefulInteractiveElement> gpui::StatefulInteractiveEle
     for ObservedText<E>
 {
 }
+
+/// An image source for UI tests: every URI resolves synchronously to a solid
+/// image of `width` x `height` pixels, so layout does not race a decoder.
+///
+/// Images normally decode on background tasks through GPUI's asset system,
+/// which a `#[gpui_kit::test]` app drives at unpredictable times: a text view
+/// holding an image measures its placeholder until the decode lands, so
+/// layout-sensitive assertions race the decoder. A `Custom` image source
+/// resolves synchronously on every layout instead, so its size is stable from
+/// the first frame. Pair it with [`crate::TextView::image_source`]:
+///
+/// ```ignore
+/// let view = TextView::markdown("doc", "before ![](a.png) after")
+///     .image_source(test_support::sized_image_source(200, 60));
+/// ```
+pub fn sized_image_source(
+    width: u32,
+    height: u32,
+) -> impl Fn(&SharedUri) -> ImageSource + Send + Sync + 'static {
+    let buffer = RgbaImage::from_pixel(width, height, image::Rgba(TEST_IMAGE_RGBA));
+    let image = Arc::new(gpui::RenderImage::new(SmallVec::from_buf([Frame::new(
+        buffer,
+    )])));
+    move |_| {
+        ImageSource::Custom(Arc::new({
+            let image = image.clone();
+            move |_, _| Some(Ok(image.clone()))
+        }))
+    }
+}
+
+/// The color [`sized_image_source`] fills its frames with. The layout tests
+/// never assert on it; the value only has to stay opaque.
+const TEST_IMAGE_RGBA: [u8; 4] = [190, 40, 40, 255];

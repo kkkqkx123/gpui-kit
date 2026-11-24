@@ -217,6 +217,19 @@ Input::new(&input).context_menu(|menu, window, cx| {
 })
 ```
 
+在选区外右键会把光标移到点击位置；在选区内右键会保留选区和光标。要处理指针下的文字（例如拼写建议菜单），读取 `context_menu_offset()`：
+
+```rust
+let state = input.clone();
+Input::new(&input).context_menu(move |menu, _, cx| {
+    // 打开此菜单的那次右键点击时，指针下的 UTF-8 偏移。
+    let Some(offset) = state.read(cx).context_menu_offset() else {
+        return menu;
+    };
+    menu.menu(format!("Look up the word at {offset}"), Box::new(LookUp))
+})
+```
+
 ### 触摸选择
 
 在触摸屏上，长按会选中手指下的单词，手指按住不放时选区跟随手指移动。抬起手指后，选区上方会出现编辑菜单，列出当前可用的命令——`剪切`、`复制`、`粘贴` 和 `全选`——并在选区两端各显示一个拖动 handle。拖动 handle 会移动对应的一端，另一端保持不动；多行输入框在手指到达边缘时会自动滚动。长按空白处或空输入框时会放置光标，菜单只提供 `粘贴` 和 `全选`。
@@ -317,6 +330,76 @@ v_flex()
     .child(Input::new(&self.email_input))
 ```
 
+## 列表
+
+`list` 让输入框在用户输入时于下方显示一个 [List](list.md)，同时仍接受任意文本，相当于 HTML 的 `<input list>`。当字段接受自由文本、而已知值能帮助用户输入时（例如主机名或指标名），可以使用它。如果值必须是列表中的某一项，请改用 [Combobox](combobox.md)。若要补全光标处的词（例如 `$变量` 或 `@提及`），请像 Input story 中的 Completion 示例那样，在输入框周围组合一个菜单。
+
+```rust
+struct HostDelegate {
+    input: Entity<InputState>,
+    api: Api,
+    hosts: Vec<Host>,
+    selected: Option<IndexPath>,
+}
+
+impl ListDelegate for HostDelegate {
+    type Item = ListItem;
+
+    // 返回的任务被替换时，旧任务会被丢弃：开头的定时器就是防抖，
+    // 旧查询的结果也不会覆盖新查询。
+    fn perform_search(&mut self, query: &str, window: &mut Window, cx: &mut Context<ListState<Self>>) -> Task<()> {
+        let (api, query) = (self.api.clone(), query.to_string());
+        cx.spawn_in(window, async move |list, cx| {
+            cx.background_executor().timer(Duration::from_millis(200)).await;
+            let hosts = api.search_hosts(&query).await.unwrap_or_default();
+            _ = list.update(cx, |list, cx| {
+                list.delegate_mut().hosts = hosts;
+                cx.notify();
+            });
+        })
+    }
+
+    fn items_count(&self, _: usize, _: &App) -> usize {
+        self.hosts.len()
+    }
+
+    fn render_item(&mut self, ix: IndexPath, _: &mut Window, _: &mut Context<ListState<Self>>) -> Option<ListItem> {
+        let host = self.hosts.get(ix.row)?;
+        Some(ListItem::new(ix.row).child(host.name.clone()))
+    }
+
+    fn set_selected_index(&mut self, ix: Option<IndexPath>, _: &mut Window, _: &mut Context<ListState<Self>>) {
+        self.selected = ix;
+    }
+
+    // 写入接受后的值，它可以和行的标题不同。
+    fn confirm(&mut self, _: bool, window: &mut Window, cx: &mut Context<ListState<Self>>) {
+        if let Some(host) = self.selected.and_then(|ix| self.hosts.get(ix.row)) {
+            let id = host.id.clone();
+            self.input.update(cx, |input, cx| input.replace_all(id, window, cx));
+        }
+    }
+}
+
+let input = cx.new(|cx| InputState::new(window, cx));
+let hosts = cx.new(|cx| ListState::new(HostDelegate::new(input.clone()), window, cx));
+
+Input::new(&input).list(&hosts)
+```
+
+固定列表就是在 `perform_search` 中同步过滤并返回 `Task::ready(())` 的 delegate。
+
+和所有 `List` 一样，匹配、防抖、分组、分页和行的渲染都由 delegate 决定。delegate 有行或 `loading` 返回 true 时才显示弹层，并且只在输入框获得焦点时显示。没有行时弹层隐藏，因为自由文本不需要“无结果”提示；搜索失败可以显示为一行。只有用户输入才会触发搜索，代码修改未聚焦的输入框不会。接受的值可以在 `confirm` 中写入，也可以在 `ListEvent::Confirm` 订阅中写入，这次改动不会触发搜索。禁用或只读的输入框不提供列表。
+
+每个输入框使用各自的 `ListState`，并且不要开启 `searchable`：输入框本身就是搜索框，开启后弹层里会再出现一个搜索框。
+
+| 按键 | 操作 |
+| --- | --- |
+| Down | 高亮下一行，或打开弹层 |
+| Up | 高亮上一行；从第一行返回输入的文本 |
+| Enter | 接受高亮的行；没有高亮时，输入框照常发出 `InputEvent::PressEnter` |
+| Escape | 关闭弹层 |
+
 ## 原子行内 token
 
 使用行内 token，可以在输入中加入需要整块选中、删除的人员提及、文件引用或命令。例如，输入框显示一个名为“Alice”的标签，而 `value()` 和复制操作返回它的真实文本 `@alice`。
@@ -415,6 +498,24 @@ let draft = InputContent::new("Ask @alice")
 提交时重新读取 `content()`：`text()` 是消息文本，`tokens()` 是其中仍然存在的引用。根据 token ID 查找资源，并在发送前处理资源已不存在的情况。
 
 `set_value` 清空撤销历史，不触发 `InputEvent::Change`。传入纯文本会移除全部 token，即使文字未变；传入 content 则恢复其中的 token（无法显示 token 的模式除外）。需要可撤销的纯文本替换时使用 `replace_all`。token 编辑会触发 `InputEvent::Change`，包括为已有文本添加引用。程序化 setter 可以修改只读或禁用的输入，因此不应对用户开放的应用命令需要自行检查这些状态。
+
+### 由文本派生 token
+
+要把用户输入的部分文本显示为 token（例如光标不在附近时的 `**bold**`），将当前文本连同它的 token 传给 `set_tokens`。它保留文本、选区和撤销历史，不触发 `InputEvent::Change`：
+
+```rust
+use gpui_kit::component::input::{InlineToken, InputContent};
+
+input.update(cx, |state, cx| {
+    let content = InputContent::new(state.value())
+        .with_token(2..7, InlineToken::new("bold", "**b**"))
+        .expect("the text holds `**b**` at 2..7");
+    // 光标位于 2..7 内时会被拒绝：文本保持原样。
+    state.set_tokens(content, cx).ok();
+});
+```
+
+content 中的文本不同时，`set_tokens` 返回 `TextMismatch`；token 会切开某个选区或光标时返回 `SplitsSelection`；失败时 token 保持原样。撤销/重做会按每次编辑记录的 token 重放文本，并丢弃被撤销的编辑切开的 token，因此每次变更后都应再次调用 `set_tokens`，使派生的 token 保持最新。
 
 ### 校验与适用范围
 

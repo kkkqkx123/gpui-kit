@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement,
-    LayoutId, Pixels, Window, point, px,
+    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, LayoutId,
+    Pixels, Window, point, px,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,14 +43,6 @@ impl EntranceSurface {
             top_limit,
             progress: 0.,
         }
-    }
-}
-
-impl IntoElement for EntranceSurface {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 
@@ -108,6 +100,7 @@ impl Element for EntranceSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::IntoElement as _;
     use gpui::{
         Anchor, Context, InteractiveElement as _, ParentElement as _, Render,
         StatefulInteractiveElement as _, Styled as _, TestAppContext, div, size,
@@ -120,7 +113,7 @@ mod tests {
     }
 
     impl Render for SurfaceProbe {
-        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
             let mut surface = EntranceSurface::new(
                 div()
                     .id("surface")

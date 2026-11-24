@@ -1,8 +1,8 @@
 //! Native GPUI path materialization.
 
 use gpui::{
-    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, Point, Refineable as _, Style, StyleRefinement, Window, point, px,
+    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, LayoutId, Pixels, Point,
+    Refineable as _, Style, StyleRefinement, Window, point, px,
 };
 
 use crate::{
@@ -90,7 +90,7 @@ impl NativePath {
         self.background.resolve().ok()
     }
 
-    fn build(&self, bounds: Bounds<Pixels>) -> Option<gpui::Path<Pixels>> {
+    fn build(&self, bounds: Bounds<Pixels>) -> Option<gpui::Path> {
         let mut builder = if self.fill {
             gpui::PathBuilder::fill()
         } else {
@@ -132,17 +132,9 @@ impl NativePath {
     }
 }
 
-impl IntoElement for NativePath {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
 impl Element for NativePath {
     type RequestLayoutState = ();
-    type PrepaintState = Option<gpui::Path<Pixels>>;
+    type PrepaintState = Option<gpui::Path>;
 
     fn id(&self) -> Option<ElementId> {
         None

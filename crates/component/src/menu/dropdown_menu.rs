@@ -164,11 +164,11 @@ where
                             })
                             .detach();
 
-                        menu.clone()
+                        menu
                     }
                 };
 
-                menu.clone()
+                menu
             })
     }
 }
@@ -204,14 +204,6 @@ impl TriggerFocus {
             id,
             build: Some(Box::new(build)),
         }
-    }
-}
-
-impl IntoElement for TriggerFocus {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 

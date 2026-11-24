@@ -141,14 +141,6 @@ impl<T: gpui::IntoElement + 'static> TypedChildElement<T> {
     }
 }
 
-impl<T: gpui::IntoElement + 'static> gpui::IntoElement for TypedChildElement<T> {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
 impl<T: gpui::IntoElement + 'static> Element for TypedChildElement<T> {
     type RequestLayoutState = gpui::AnyElement;
     type PrepaintState = ();

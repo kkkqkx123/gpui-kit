@@ -9,9 +9,9 @@ use std::panic::Location;
 use std::rc::Rc;
 
 use gpui::{
-    App, Axis, Bounds, ContentMask, Element, ElementId, GlobalElementId, Hitbox, IntoElement,
-    IsZero as _, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    OngoingScroll, Position, ScrollEvent, Style, TouchPhase, Window, relative,
+    App, Axis, Bounds, ContentMask, Element, ElementId, GlobalElementId, Hitbox, IsZero as _,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, OngoingScroll, Position,
+    ScrollEvent, Style, TouchPhase, Window, relative,
 };
 
 use super::state::CarouselState;
@@ -40,14 +40,6 @@ impl CarouselScrollMask {
 
     pub(super) fn id(mut self, id: impl Into<ElementId>) -> Self {
         self.id = id.into();
-        self
-    }
-}
-
-impl IntoElement for CarouselScrollMask {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
         self
     }
 }

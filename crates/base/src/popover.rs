@@ -71,6 +71,14 @@ impl PopoverState {
         }
     }
 
+    /// Whether a popup opened from inside this popover, such as a select's
+    /// menu, is open.
+    fn has_nested_popup(&self, cx: &App) -> bool {
+        self.deferred_context
+            .as_ref()
+            .is_some_and(|context| GlobalState::has_deferred_popover_after(context, cx))
+    }
+
     pub fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.open {
             self.toggle_open(window, cx);
@@ -86,6 +94,37 @@ impl PopoverState {
     #[doc(hidden)]
     pub fn sync_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.transition_to(open, false, window, cx);
+    }
+
+    /// Moves focus into the popover when it opens, or back to where it was
+    /// when it closes. On close, `restore` is set only if focus was inside the
+    /// popover, and holds the handle to give focus back to, if any. Skipped if
+    /// a later transition has already flipped `open`.
+    fn move_focus(
+        &self,
+        opening: bool,
+        restore: Option<Option<FocusHandle>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if self.open != opening {
+            return;
+        }
+        if opening {
+            self.tracked_focus_handle
+                .clone()
+                .unwrap_or_else(|| self.focus_handle.clone())
+                .focus(window, cx);
+            return;
+        }
+        match restore {
+            Some(Some(previous)) => previous.focus(window, cx),
+            // Nothing had focus when the popover opened, so nothing has it now. Left
+            // alone, focus would stay on the closed popover's own handle, which is no
+            // longer in the tree.
+            Some(None) => window.blur(cx),
+            None => {}
+        }
     }
 
     #[doc(hidden)]
@@ -108,16 +147,37 @@ impl PopoverState {
         }
         self.set_open(opening, cx);
 
+        // Read now, while the last frame still has the popover's content.
+        let restore = if self.open {
+            None
+        } else {
+            let previous = self.previous_focus_handle.take();
+            self.focus_handle
+                .contains_focused(window, cx)
+                .then_some(previous)
+        };
+        if announce {
+            self.move_focus(self.open, restore, window, cx);
+        } else {
+            // A controlled popover syncs `open` while it renders, and that can
+            // be in the middle of another element's prepaint: `MotionReveal`
+            // lays out its child there. Elements before it have already
+            // reported focus to the accessibility tree for this frame, so
+            // focus moves after the frame instead of reporting a second one.
+            let state = cx.entity().downgrade();
+            let opening = self.open;
+            window.defer(cx, move |window, cx| {
+                _ = state.update(cx, |state, cx| {
+                    state.move_focus(opening, restore, window, cx)
+                });
+            });
+        }
+
         if self.open {
             // Weak: the subscription is stored on this state, so a strong
             // handle would keep the state, and its deferred-popover
             // registration, alive after its trigger is gone.
             let state = cx.entity().downgrade();
-            self.tracked_focus_handle
-                .clone()
-                .unwrap_or_else(|| self.focus_handle.clone())
-                .focus(window, cx);
-
             self.dismiss_subscription =
                 Some(
                     window.subscribe(&cx.entity(), cx, move |_, _: &DismissEvent, window, cx| {
@@ -127,16 +187,6 @@ impl PopoverState {
                 );
         } else {
             self.dismiss_subscription = None;
-            let previous = self.previous_focus_handle.take();
-            if self.focus_handle.contains_focused(window, cx) {
-                match previous {
-                    Some(previous) => previous.focus(window, cx),
-                    // Nothing had focus when the popover opened, so nothing has it now. Left
-                    // alone, focus would stay on the closed popover's own handle, which is no
-                    // longer in the tree.
-                    None => window.blur(cx),
-                }
-            }
         }
 
         if announce && let Some(callback) = self.on_open_change.as_ref() {
@@ -382,8 +432,22 @@ impl RenderOnce for Popover {
                 this.on_mouse_down_out({
                     let state = state.clone();
                     move |_, window, cx| {
-                        state.update(cx, |state, cx| state.dismiss(window, cx));
-                        cx.notify(parent_view_id);
+                        if !state.read(cx).has_nested_popup(cx) {
+                            state.update(cx, |state, cx| state.dismiss(window, cx));
+                            cx.notify(parent_view_id);
+                            return;
+                        }
+                        // A popup opened from inside is drawn outside these
+                        // bounds. A press outside it too closes it during this
+                        // event; one inside it leaves it open, and is not a
+                        // press outside the popover.
+                        let state = state.clone();
+                        window.defer(cx, move |window, cx| {
+                            if !state.read(cx).has_nested_popup(cx) {
+                                state.update(cx, |state, cx| state.dismiss(window, cx));
+                                cx.notify(parent_view_id);
+                            }
+                        });
                     }
                 })
             });
@@ -503,6 +567,80 @@ mod tests {
                 window.focused(cx)
             )
         });
+    }
+
+    struct NestedPopoverHarness;
+
+    impl Render for NestedPopoverHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            Popover::new("outer-popover")
+                .trigger_with(|_, _, _| div().size(px(40.)).child("Open").into_any_element())
+                .content(|_, _, _| {
+                    div()
+                        .debug_selector(|| "outer-popover-content".into())
+                        .size(px(40.))
+                        .child(
+                            Popover::new("inner-popover")
+                                .trigger_with(|_, _, _| {
+                                    div()
+                                        .debug_selector(|| "inner-popover-trigger".into())
+                                        .size(px(20.))
+                                        .into_any_element()
+                                })
+                                .content(|_, _, _| {
+                                    div()
+                                        .debug_selector(|| "inner-popover-content".into())
+                                        .size(px(120.))
+                                }),
+                        )
+                })
+        }
+    }
+
+    /// A popup opened from inside a popover, such as a select's menu, is drawn
+    /// outside the popover's bounds. A press in it is not a press outside the
+    /// popover; a press outside both closes both.
+    #[gpui::test]
+    fn a_press_in_a_nested_popup_keeps_the_popover_open(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+        let (_, cx) = cx.add_window_view(|_, _| NestedPopoverHarness);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.simulate_click(point(px(20.), px(10.)), Default::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let outer = cx
+            .debug_bounds("outer-popover-content")
+            .expect("the outer popover opens");
+
+        let inner_trigger = cx
+            .debug_bounds("inner-popover-trigger")
+            .expect("the outer popover holds the inner trigger");
+        cx.simulate_click(inner_trigger.center(), Default::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let inner = cx
+            .debug_bounds("inner-popover-content")
+            .expect("the inner popover opens");
+
+        let in_inner_only = point(inner.right() - px(2.), inner.top() + px(2.));
+        assert!(
+            !outer.contains(&in_inner_only),
+            "the press must land outside the outer popover's bounds"
+        );
+        cx.simulate_click(in_inner_only, Default::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("inner-popover-content").is_some());
+        assert!(
+            cx.debug_bounds("outer-popover-content").is_some(),
+            "a press in the nested popup must not dismiss the popover"
+        );
+
+        cx.simulate_click(point(px(300.), px(300.)), Default::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("inner-popover-content").is_none());
+        assert!(
+            cx.debug_bounds("outer-popover-content").is_none(),
+            "a press outside both closes both"
+        );
     }
 
     #[gpui::test]

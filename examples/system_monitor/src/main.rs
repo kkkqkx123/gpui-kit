@@ -454,13 +454,7 @@ impl SystemMonitor {
             .gap_4()
             .flex_1()
             .child(self.render_chart("CPU Usage", data.clone(), |d| d.cpu, cx.theme().red, cx))
-            .child(self.render_chart(
-                "Memory Usage",
-                data.clone(),
-                |d| d.memory,
-                cx.theme().blue,
-                cx,
-            ))
+            .child(self.render_chart("Memory Usage", data, |d| d.memory, cx.theme().blue, cx))
     }
 
     fn render_processes_tab(&self, _cx: &Context<Self>) -> impl IntoElement {
@@ -617,7 +611,7 @@ fn main() {
         });
 
         let window_options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(size(px(680.), px(600.)), cx)),
+            window_bounds: Some(WindowBounds::centered(None, size(px(680.), px(600.)), cx)),
             ..TitleBar::window_options()
         };
 

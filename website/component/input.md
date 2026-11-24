@@ -233,6 +233,19 @@ Input::new(&input).context_menu(|menu, window, cx| {
 })
 ```
 
+A right-click outside the selection moves the cursor to the click. A right-click inside the selection keeps the selection and the cursor, so read `context_menu_offset()` to act on the text under the pointer, as a spelling menu does:
+
+```rust
+let state = input.clone();
+Input::new(&input).context_menu(move |menu, _, cx| {
+    // The UTF-8 offset under the pointer at the right-click that opened this menu.
+    let Some(offset) = state.read(cx).context_menu_offset() else {
+        return menu;
+    };
+    menu.menu(format!("Look up the word at {offset}"), Box::new(LookUp))
+})
+```
+
 ### Touch Selection
 
 On a touch screen, a long press selects the word under the finger and keeps
@@ -355,6 +368,76 @@ v_flex()
     .child(Input::new(&self.name_input))
     .child(Input::new(&self.email_input))
 ```
+
+## List
+
+`list` shows a [List](list.md) under the field while the user types, and the input still accepts any text — the counterpart of an HTML `<input list>`. Use it when the field takes free text but known values help people type it, such as a host name or a metric. When the value must be one of the items, use [Combobox](combobox.md) instead. To complete a word at the caret, such as a `$variable` or an `@mention`, compose a menu around the input, as the Completion example in the Input story does.
+
+```rust
+struct HostDelegate {
+    input: Entity<InputState>,
+    api: Api,
+    hosts: Vec<Host>,
+    selected: Option<IndexPath>,
+}
+
+impl ListDelegate for HostDelegate {
+    type Item = ListItem;
+
+    // Replacing the returned task drops the previous one, so a timer at its
+    // start debounces and an older query can never overwrite a newer one.
+    fn perform_search(&mut self, query: &str, window: &mut Window, cx: &mut Context<ListState<Self>>) -> Task<()> {
+        let (api, query) = (self.api.clone(), query.to_string());
+        cx.spawn_in(window, async move |list, cx| {
+            cx.background_executor().timer(Duration::from_millis(200)).await;
+            let hosts = api.search_hosts(&query).await.unwrap_or_default();
+            _ = list.update(cx, |list, cx| {
+                list.delegate_mut().hosts = hosts;
+                cx.notify();
+            });
+        })
+    }
+
+    fn items_count(&self, _: usize, _: &App) -> usize {
+        self.hosts.len()
+    }
+
+    fn render_item(&mut self, ix: IndexPath, _: &mut Window, _: &mut Context<ListState<Self>>) -> Option<ListItem> {
+        let host = self.hosts.get(ix.row)?;
+        Some(ListItem::new(ix.row).child(host.name.clone()))
+    }
+
+    fn set_selected_index(&mut self, ix: Option<IndexPath>, _: &mut Window, _: &mut Context<ListState<Self>>) {
+        self.selected = ix;
+    }
+
+    // Write what accepting means. It may differ from the row's label.
+    fn confirm(&mut self, _: bool, window: &mut Window, cx: &mut Context<ListState<Self>>) {
+        if let Some(host) = self.selected.and_then(|ix| self.hosts.get(ix.row)) {
+            let id = host.id.clone();
+            self.input.update(cx, |input, cx| input.replace_all(id, window, cx));
+        }
+    }
+}
+
+let input = cx.new(|cx| InputState::new(window, cx));
+let hosts = cx.new(|cx| ListState::new(HostDelegate::new(input.clone()), window, cx));
+
+Input::new(&input).list(&hosts)
+```
+
+A fixed list is a delegate whose `perform_search` filters synchronously and returns `Task::ready(())`.
+
+The delegate owns the search, like any `List`: matching, debouncing, sections, paging and rows. The popup shows while the delegate has rows or `loading` returns true, and only while the input has focus. With no rows it hides, because free text needs no "No results"; show a failed search as a row. Only typing searches, so a change made in code to an unfocused input does not. Write the accepted value in `confirm` or in a `ListEvent::Confirm` subscription; that change starts no search. A disabled or read-only input offers none.
+
+Give each input its own `ListState`, created without `searchable`: the field is the search box, and a searchable list would show a second one inside the popup.
+
+| Key | Action |
+| --- | --- |
+| Down | Highlight the next row, or open the popup |
+| Up | Highlight the previous row; from the first, return to the typed text |
+| Enter | Accept the highlighted row; with none, the input emits `InputEvent::PressEnter` as usual |
+| Escape | Close the popup |
 
 ## Atomic inline tokens
 
@@ -496,6 +579,30 @@ an undoable plain-text replacement. Token edits,
 including adding a reference to existing text, emit `InputEvent::Change`.
 Programmatic setters can update readonly or disabled inputs, so check these
 states in application commands that should be unavailable to users.
+
+### Derive tokens from the text
+
+To show part of the typed text as a token, such as `**bold**` while the caret is
+elsewhere, pass the current text with its tokens to `set_tokens`. It keeps the
+text, the selections and the undo history, and does not emit `InputEvent::Change`:
+
+```rust
+use gpui_kit::component::input::{InlineToken, InputContent};
+
+input.update(cx, |state, cx| {
+    let content = InputContent::new(state.value())
+        .with_token(2..7, InlineToken::new("bold", "**b**"))
+        .expect("the text holds `**b**` at 2..7");
+    // Rejected while a caret is inside 2..7: the text stays plain.
+    state.set_tokens(content, cx).ok();
+});
+```
+
+`set_tokens` returns `TextMismatch` when the content holds other text and
+`SplitsSelection` when a token would cut through a selection or a caret; the
+tokens stay as they were. Undo and Redo replay the text with the tokens recorded
+for each edit and drop a token that an undone edit cuts through, so call
+`set_tokens` again after each change to keep derived tokens current.
 
 ### Validation and supported inputs
 

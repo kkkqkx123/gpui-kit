@@ -118,7 +118,7 @@ cargo test -p gpui-kit --features test-support --test ui --locked
 | Menu | 菜单项名称与选中状态、菜单焦点作用域、子菜单边界 |
 | Notification | Alert 角色与边界；关闭按钮沿用 Button 观察 |
 | Progress / ProgressCircle | 进度指示器角色与名称；`ElementSnapshot::value()` 不读取数值型无障碍属性 |
-| TitleBar | `title-bar` 与 `window-controls` 边界；窗口控制按钮（`minimize`、`maximize` 或 `restore`、`close`）仅在标题栏自行绘制时可读 |
+| TitleBar | `title-bar`、尾侧 `window-controls` 与可选起始侧 `window-controls-start` 边界；窗口控制按钮（`minimize`、`maximize` 或 `restore`、`close`）仅在标题栏自行绘制时可读 |
 | Dock | 区域、分组与内容边界及焦点作用域；Tab 保留原生选中状态 |
 
 优先使用构造函数 ID。Input 和 Select 支持 `.id("name")`，默认 ID 包含状态 entity ID。
@@ -385,7 +385,7 @@ window.pointer_up(start + point(px(24.), px(0.)), MouseButton::Left, cx);
 | `input_focus.rs` | 带静态前后缀的输入框反复 Tab/Shift-Tab 遍历、前后缀按钮的焦点与激活，以及点击 Textarea/Editor 正文后的焦点和编辑 |
 | `search.rs` | Command 禁用项跳过、循环导航、中文关键词、空结果、Action 与原始索引回调、两阶段 Escape；Combobox 搜索、单选/多选、清除、空结果恢复、禁用行为及关闭时仅一次 Confirm |
 | `disclosure.rs` | Accordion 互斥展开、折叠与实际面板几何；Stepper 内容导航；禁用展开与步骤操作；Slider 轨道点击、滑块拖动与禁用行为 |
-| `collections.rs` | Tree 点击展开、键盘展开/折叠与选择；DataTable 行选择、键盘虚拟滚动与滚轮滚动 |
+| `collections.rs` | Tree 点击展开、键盘展开/折叠与选择；DataTable 行选择、键盘虚拟滚动、Tab 移出表格与滚轮滚动 |
 | `query_helpers.rs` | 精确无障碍标签和角色、作用域歧义、不可见注册元素与不可变快照 |
 | `event_helpers.rs` | 分步鼠标和按键事件、自动重复与保持修饰键 |
 | `control_steps.rs` | Button 移出释放取消、Checkbox 按键重复及 Switch 在按键释放前禁用 |

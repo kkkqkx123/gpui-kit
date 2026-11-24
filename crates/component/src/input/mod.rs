@@ -1,5 +1,6 @@
 mod clear_button;
 mod content_type;
+mod gutter_style;
 mod input;
 mod token;
 pub use gpui_base::input::{
@@ -8,6 +9,7 @@ pub use gpui_base::input::{
 };
 pub use token::InputToken;
 pub mod language_config;
+mod list_popup;
 mod number_input;
 mod otp_input;
 mod overlay;
@@ -31,18 +33,20 @@ pub use gpui_base::input::{
     EditorState, Enter, Escape, FoldRange, GoToDefinition, GutterDecoration,
     GutterDecorationCollection, HighlightStyleResolver, HoverPopoverState, HoverProvider, Indent,
     IndentInline, InputEdit, InputEditsEvent, InputEvent, InputHighlighter,
-    InputHighlighterFactory, InputState, Lsp, MaskPattern, MoveDown, MoveEnd, MoveHome, MoveLeft,
-    MovePageDown, MovePageUp, MoveRight, MoveToEnd, MoveToEndOfLine, MoveToNextWord,
-    MoveToPreviousWord, MoveToStart, MoveToStartOfLine, MoveUp, Outdent, OutdentInline,
-    OverviewRulerDecoration, OverviewRulerDecorationCollection, OverviewRulerLane, Paste, Point,
-    PrepaintCaretGeometry, RangeDecoration, RangeDecorationCollection, RangeDecorationStyle, Redo,
-    Replace, Rope, RopeExt, RopeLines, Search, SelectAll, SelectToEnd, SelectToEndOfLine,
-    SelectToNextWordEnd, SelectToPreviousWordStart, SelectToStart, SelectToStartOfLine, Selection,
-    ShowCharacterPalette, ShowCompletions, ShowDocumentHandler, TabSize, TextDecoration,
-    TextDecorationCollection, TextareaState, ToggleCodeActions, Undo, WrappingIndent,
-    highlight_characters, highlight_contains, highlight_prefix,
+    InputHighlighterFactory, InputState, LineDecoration, LineDecorationCollection,
+    LineDecorationProvider, Lsp, MaskPattern, MoveDown, MoveEnd, MoveHome, MoveLeft, MovePageDown,
+    MovePageUp, MoveRight, MoveToEnd, MoveToEndOfLine, MoveToNextWord, MoveToPreviousWord,
+    MoveToStart, MoveToStartOfLine, MoveUp, Outdent, OutdentInline, OverviewRulerDecoration,
+    OverviewRulerDecorationCollection, OverviewRulerLane, Paste, Point, PrepaintCaretGeometry,
+    RangeDecoration, RangeDecorationCollection, RangeDecorationStyle, Redo, Replace, Rope, RopeExt,
+    RopeLines, Search, SelectAll, SelectToEnd, SelectToEndOfLine, SelectToNextWordEnd,
+    SelectToPreviousWordStart, SelectToStart, SelectToStartOfLine, Selection, ShowCharacterPalette,
+    ShowCompletions, ShowDocumentHandler, TabSize, TextDecoration, TextDecorationCollection,
+    TextareaState, ToggleCodeActions, Undo, WrappingIndent, highlight_characters,
+    highlight_contains, highlight_prefix,
 };
 pub use gpui_base::input::{EditorMode, InputMode, InputModeKind, TextareaMode};
+pub use gutter_style::GutterStyle;
 #[doc(hidden)]
 mod editor;
 mod group;

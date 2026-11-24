@@ -10,7 +10,7 @@ use std::{
 
 use gpui::{
     AnyElement, App, Bounds, Element, ElementId, GlobalElementId, HighlightStyle, Hitbox,
-    HitboxBehavior, InspectorElementId, IntoElement, LayoutId, ListState, MouseButton,
+    HitboxBehavior, InspectorElementId, LayoutId, ListState, Modifiers, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollHandle, StyledText,
     TextLayout, Window, px,
 };
@@ -19,7 +19,7 @@ use gpui_base::{
 };
 
 use super::{
-    DiffFile, DiffSide,
+    DiffFile, DiffLinePosition, DiffSide, DiffTextPosition, TextHoverHandler,
     state::{decode_key, encode_key},
 };
 
@@ -30,6 +30,7 @@ pub(crate) struct CodeRun {
     display_range: Range<usize>,
     layout: TextLayout,
     bounds: Bounds<Pixels>,
+    visible: Bounds<Pixels>,
     document: DiffFile,
 }
 
@@ -38,12 +39,65 @@ pub(crate) struct SelectionGeometry {
     bounds: Bounds<Pixels>,
     scroll_offset: Point<Pixels>,
     multi_click: Cell<Option<(usize, Point<Pixels>, bool)>>,
+    /// What the text hover handler heard last, so it only hears changes.
+    text_hover: RefCell<Option<(Option<DiffTextPosition>, Modifiers)>>,
     runs: Vec<CodeRun>,
 }
 
 impl SelectionGeometry {
     pub fn clear(&mut self) {
         self.runs.clear();
+    }
+
+    /// The hover to report when the modifiers become `modifiers` with the
+    /// pointer at rest at `point`: the character there now, since the rows
+    /// may have scrolled under it. `None` when the pointer was last heard
+    /// off the text or nothing changed.
+    pub fn text_hover_after(
+        &self,
+        point: Point<Pixels>,
+        modifiers: Modifiers,
+    ) -> Option<Option<DiffTextPosition>> {
+        let mut heard = self.text_hover.borrow_mut();
+        let (Some(_), before) = heard.as_ref()? else {
+            return None;
+        };
+        if *before == modifiers {
+            return None;
+        }
+        let hit = self.text_at(point);
+        *heard = Some((hit.clone(), modifiers));
+        Some(hit)
+    }
+
+    /// Where each painted run of `side`'s line `line_ix` sits.
+    #[cfg(test)]
+    pub fn run_bounds(&self, side: DiffSide, line_ix: usize) -> Vec<Bounds<Pixels>> {
+        self.runs
+            .iter()
+            .filter(|run| run.side == side && run.line_ix == line_ix)
+            .map(|run| run.bounds)
+            .collect()
+    }
+
+    /// The character painted at `point`, in window coordinates. Unlike
+    /// [`Self::key_at`] it never snaps to the nearest text: a pointer past
+    /// a line's end is over no character.
+    pub fn text_at(&self, point: Point<Pixels>) -> Option<DiffTextPosition> {
+        let run = self.runs.iter().find(|run| run.visible.contains(&point))?;
+        let ix = run.display_range.start + run.layout.index_for_position(point).ok()?;
+        let line = &run.document.lines(run.side)[run.line_ix];
+        (ix < line.display().len()).then(|| {
+            DiffTextPosition::new(
+                DiffLinePosition::new(
+                    run.document.path().clone(),
+                    run.side,
+                    run.document.line_number(run.side, run.line_ix),
+                ),
+                line.source_offset(ix),
+                line.text().clone(),
+            )
+        })
     }
 
     /// The widest painted source line, measured from its first text run.
@@ -101,8 +155,8 @@ impl SelectionGeometry {
             self.runs
                 .iter()
                 .min_by(|a, b| {
-                    distance_to_bounds(point, a.bounds)
-                        .total_cmp(&distance_to_bounds(point, b.bounds))
+                    distance_to_bounds(point, a.visible)
+                        .total_cmp(&distance_to_bounds(point, b.visible))
                 })
                 .map(|run| run.side)
         })?;
@@ -110,11 +164,11 @@ impl SelectionGeometry {
             .iter()
             .filter(|run| run.side == side)
             .min_by(|a, b| {
-                line_distance(point, a.bounds)
-                    .cmp(&line_distance(point, b.bounds))
+                line_distance(point, a.visible)
+                    .cmp(&line_distance(point, b.visible))
                     .then_with(|| {
-                        distance_to_bounds(point, a.bounds)
-                            .total_cmp(&distance_to_bounds(point, b.bounds))
+                        distance_to_bounds(point, a.visible)
+                            .total_cmp(&distance_to_bounds(point, b.visible))
                     })
             })
     }
@@ -245,13 +299,6 @@ impl CodeText {
     }
 }
 
-impl IntoElement for CodeText {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl Element for CodeText {
     type RequestLayoutState = ();
     type PrepaintState = ();
@@ -318,6 +365,7 @@ impl Element for CodeText {
             display_range: self.range.clone(),
             layout: text.layout().clone(),
             bounds,
+            visible: bounds.intersect(&window.content_mask().bounds),
             document: self.document.clone(),
         });
     }
@@ -417,6 +465,7 @@ pub(crate) struct SelectionLayer {
     horizontal: ScrollHandle,
     selection: TextSelectionHandle,
     geometry: Rc<RefCell<SelectionGeometry>>,
+    on_text_hover: Option<TextHoverHandler>,
 }
 
 impl SelectionLayer {
@@ -426,6 +475,7 @@ impl SelectionLayer {
         horizontal: ScrollHandle,
         selection: TextSelectionHandle,
         geometry: Rc<RefCell<SelectionGeometry>>,
+        on_text_hover: Option<TextHoverHandler>,
     ) -> Self {
         Self {
             child,
@@ -433,16 +483,11 @@ impl SelectionLayer {
             horizontal,
             selection,
             geometry,
+            on_text_hover,
         }
     }
 }
 
-impl IntoElement for SelectionLayer {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
 impl Element for SelectionLayer {
     type RequestLayoutState = ();
     type PrepaintState = Hitbox;
@@ -489,7 +534,7 @@ impl Element for SelectionLayer {
             .borrow()
             .runs
             .iter()
-            .map(|run| run.bounds)
+            .map(|run| run.visible)
             .collect();
         self.selection.register(
             TextSelectionRegistration::new(hitbox.clone(), bounds)
@@ -507,10 +552,43 @@ impl Element for SelectionLayer {
         _: Option<&InspectorElementId>,
         _: Bounds<Pixels>,
         _: &mut (),
-        _: &mut Hitbox,
+        hitbox: &mut Hitbox,
         window: &mut Window,
         cx: &mut App,
     ) {
+        if let Some(handler) = self.on_text_hover.clone() {
+            let report = {
+                let geometry = self.geometry.clone();
+                let hitbox = hitbox.clone();
+                move |point: Point<Pixels>,
+                      modifiers: Modifiers,
+                      window: &mut Window,
+                      cx: &mut App| {
+                    let hit = hitbox
+                        .is_hovered(window)
+                        .then(|| geometry.borrow().text_at(point))
+                        .flatten();
+                    let heard = Some((hit, modifiers));
+                    // The borrows end before the handler runs: it may
+                    // repaint, which rebuilds the geometry.
+                    if *geometry.borrow().text_hover.borrow() == heard {
+                        return;
+                    }
+                    geometry.borrow().text_hover.replace(heard.clone());
+                    handler(
+                        heard.and_then(|(hit, _)| hit).as_ref(),
+                        modifiers,
+                        window,
+                        cx,
+                    );
+                }
+            };
+            window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                if phase.bubble() {
+                    report(event.position, event.modifiers, window, cx);
+                }
+            });
+        }
         let runs = self
             .geometry
             .borrow()
@@ -518,7 +596,7 @@ impl Element for SelectionLayer {
             .iter()
             .map(|run| {
                 let text = run.document.lines(run.side)[run.line_ix].chunk_text(&run.display_range);
-                TextSelectionRun::new(text, run.layout.clone(), run.bounds).with_document_order(
+                TextSelectionRun::new(text, run.layout.clone(), run.visible).with_document_order(
                     encode_key(
                         run.file,
                         run.side,

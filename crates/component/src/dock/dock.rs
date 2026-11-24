@@ -6,13 +6,13 @@ use std::{rc::Rc, sync::Arc};
 use gpui::{
     AnyElement, App, AppContext as _, Axis, Context, Div, Element, Empty, InteractiveElement as _,
     IntoElement, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, Stateful, Style,
-    Styled as _, Window, div,
+    Styled as _, Window, div, px,
 };
 use gpui_base::{
     HandleEdge, ResizeHandleContext,
     dock::{
-        DockAreaRenderer, DockContext, DockEvent, DockPlacement, NodeId, PanelState, PanelView,
-        TabGroupRenderer,
+        CLOSED_BOTTOM_STRIP, DockAreaRenderer, DockContext, DockEvent, DockPlacement, NodeId,
+        PanelState, PanelView, TabGroupRenderer,
     },
 };
 
@@ -22,7 +22,7 @@ use crate::{
         DockSkin, SkinShared, invalid_panel::InvalidPanel, panel_handle, report_user_toggle,
         tab_panel::TabGroupSkin,
     },
-    resizable::render_resize_handle,
+    resizable::render_resize_handle_with,
     resize_handle,
 };
 
@@ -38,6 +38,15 @@ impl Render for ResizePanel {
 }
 
 impl DockAreaRenderer for DockSkin {
+    fn closed_dock_extent(&self, placement: DockPlacement) -> Pixels {
+        match placement {
+            DockPlacement::Bottom if self.shared().collapsed_tab_bar_visible.get() => {
+                CLOSED_BOTTOM_STRIP
+            }
+            _ => px(0.),
+        }
+    }
+
     // The row, the fill and the clip are base's now -- applied around whatever
     // these return -- so a skin that has no appearance to add returns a bare
     // frame and still gets a dock area the right shape.
@@ -55,7 +64,8 @@ impl DockAreaRenderer for DockSkin {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<AnyElement> {
-        Some(render_resize_handle(handle, window, cx))
+        let line = self.shared().split_divider_line_visible.get();
+        Some(render_resize_handle_with(handle, line, window, cx))
     }
 
     fn split_frame(&self, node: NodeId, _: Axis, _: &mut Window, cx: &mut App) -> Stateful<Div> {
@@ -114,9 +124,10 @@ impl DockSkin {
         &self,
         dock: &DockContext,
         _: &mut Window,
-        _: &mut App,
+        cx: &mut App,
     ) -> impl IntoElement {
         let placement = dock.placement();
+        let physical = placement.physical(gpui_base::LayoutDirection::global(cx));
         let open = dock.is_open();
         let shared = self.shared().clone();
 
@@ -134,7 +145,7 @@ impl DockSkin {
         // Every dock's handle lives inside the dock, because `dock_frame` clips
         // to the dock's box. The left dock hugs its trailing edge; the right
         // and bottom docks hug their leading one.
-        let edge = match placement {
+        let edge = match physical {
             DockPlacement::Left => HandleEdge::Trailing,
             _ => HandleEdge::Leading,
         };
@@ -162,14 +173,6 @@ impl DockSkin {
 struct DockResizeTracker {
     dock: DockContext,
     shared: Rc<SkinShared>,
-}
-
-impl IntoElement for DockResizeTracker {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
 }
 
 impl Element for DockResizeTracker {
@@ -267,7 +270,7 @@ mod tests {
     use gpui_base::PANEL_MIN_SIZE;
 
     use crate::dock::{
-        DockArea, DockLayout, DockPlacement, DockSkin,
+        CLOSED_BOTTOM_STRIP, DockArea, DockLayout, DockPlacement, DockSkin,
         test_support::{MeasuredProbe, SizedProbe},
     };
 
@@ -599,5 +602,49 @@ mod tests {
             (true, Some(PANEL_MIN_SIZE)),
             "released nearer the minimum, the dock opens at the minimum"
         );
+    }
+
+    /// #3856: an application with its own toggle hides the collapsed tab bar,
+    /// and a closed bottom dock then gives the centre its whole height.
+    #[gpui::test]
+    fn a_closed_bottom_dock_takes_no_space_without_its_tab_bar(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        let mut skin = None;
+        let (area, cx) = cx.add_window_view(|window, cx| {
+            let this = DockSkin::new(cx);
+            skin = Some(this.clone());
+            DockArea::new("test", None, window, cx).with_renderer(this)
+        });
+        let skin = skin.unwrap();
+        cx.simulate_resize(size(px(800.), px(600.)));
+        let center = Rc::new(std::cell::Cell::new(px(0.)));
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.set_center(
+                    DockLayout::tabs().panel(MeasuredProbe::new(center.clone(), cx)),
+                    window,
+                    cx,
+                );
+                area.set_dock(
+                    DockPlacement::Bottom,
+                    DockLayout::tabs().panel(MeasuredProbe::new(Rc::default(), cx)),
+                    window,
+                    cx,
+                );
+                area.toggle_dock(DockPlacement::Bottom, window, cx);
+            });
+        });
+        let draw = |cx: &mut VisualTestContext| {
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        draw(cx);
+        assert!(!cx.update(|_, cx| area.read(cx).is_dock_open(DockPlacement::Bottom)));
+        let with_strip = center.get();
+
+        assert!(skin.is_collapsed_tab_bar_visible());
+        cx.update(|_, cx| skin.set_collapsed_tab_bar_visible(false, cx));
+        draw(cx);
+        assert_eq!(center.get() - with_strip, CLOSED_BOTTOM_STRIP);
     }
 }

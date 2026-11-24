@@ -60,14 +60,6 @@ impl<E: Element<PrepaintState = Option<gpui::Hitbox>> + InteractiveElement> A11y
     }
 }
 
-impl<E: Element> IntoElement for A11yDisabled<E> {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl<E: InteractiveElement> InteractiveElement for A11yDisabled<E> {
     fn interactivity(&mut self) -> &mut Interactivity {
         self.inner.interactivity()
@@ -243,6 +235,15 @@ mod tests {
                             ),
                         ));
                         nodes.push((
+                            "input",
+                            disabled,
+                            node_of(
+                                crate::input::InputBase::new("input")
+                                    .disabled(disabled)
+                                    .render(window, cx),
+                            ),
+                        ));
+                        nodes.push((
                             "slider",
                             disabled,
                             node_of(Slider::new(&slider).disabled(disabled).render(window, cx)),
@@ -264,7 +265,7 @@ mod tests {
         cx.update(|window, cx| window.draw(cx).clear(cx));
 
         let nodes = captured.lock().unwrap();
-        assert_eq!(nodes.len(), 22);
+        assert_eq!(nodes.len(), 24);
         for (name, disabled, node) in nodes.iter() {
             assert_ne!(node.role(), gpui::Role::Unknown, "{name} wrote no node");
             assert_eq!(node.is_disabled(), *disabled, "{name}, disabled {disabled}");
